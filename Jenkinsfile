@@ -23,8 +23,8 @@ pipeline {
         stage('Run Postman Tests') {
             steps {
                 powershell '''
-                    newman run postman/collections/Cars_API.postman_collection.json `
-                        -e postman/environments/qa.postman_environment.json `
+                    newman run postman/collections/ACHDATA - YY.postman_collection.json `
+                        -e postman/environments/ACHData QA.postman_environment.json `
                         --reporters cli
                 '''
             }
