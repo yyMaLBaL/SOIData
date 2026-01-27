@@ -23,8 +23,8 @@ pipeline {
         stage('Run Postman Tests') {
             steps {
                 powershell '''
-                    newman run Colecciones/"ACHDATA - YY.postman_collection.json" `
-                        -e Entornos/"ACHData QA.postman_environment.json" `
+                    newman run Collection/"ACHDATA - YY.postman_collection.json" `
+                        -e Environment/"ACHData QA.postman_environment.json" `
                         --reporters cli
                 '''
             }
