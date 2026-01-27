@@ -55,115 +55,36 @@ pipeline {
                     $timestamp = Get-Content "env_timestamp.txt" -Encoding UTF8
                     $baseReportPath = Get-Content "env_reportpath.txt" -Encoding UTF8
                     
-                    # Definir todos los ambientes a ejecutar
-                    # Estructura: Ambiente / Carpetas que incluye
-                    $ambientes = @(
-                        @{
-                            Nombre = "AT"
-                            Carpetas = @(
-                                "Autenticacion/AT - Autenticacion",
-                                "Doble Factor de Autenticacion/AT - Doble Factor de Autenticacion",
-                                "Uso de Datos/AT - Uso de Datos",
-                                "Consultas/Detallada Natural Y Juridica/AT - Detallada Natural Y Juridica",
-                                "Servicios ACH/AT - Servicios ACH",
-                                "SDH/AT - SDH",
-                                "Administracion/AT - Administracion",
-                                "Monitoreo/AT - Monitoreo",
-                                "Estadisticas/AT - Estadisticas",
-                                "Auditoria/AT - Auditoria",
-                                "ADMINISTRADOR ENTIDAD/AT - ADMINISTRADOR ENTIDAD"
-                            )
-                        },
-                        @{
-                            Nombre = "SS"
-                            Carpetas = @(
-                                "Autenticacion/SS - Autenticacion",
-                                "Doble Factor de Autenticacion/SS - Doble Factor de Autenticacion",
-                                "Uso de Datos/SS - Uso de Datos",
-                                "Consultas/Detallada Natural Y Juridica/SS - Detallada Natural Y Juridica",
-                                "Servicios ACH/SS - Servicios ACH",
-                                "SDH/SS - SDH",
-                                "Administracion/SS - Administracion",
-                                "Monitoreo/SS - Monitoreo",
-                                "Estadisticas/SS - Estadisticas",
-                                "Auditoria/SS - Auditoria",
-                                "ADMINISTRADOR ENTIDAD/SS - ADMINISTRADOR ENTIDAD"
-                            )
-                        },
-                        @{
-                            Nombre = "CS"
-                            Carpetas = @(
-                                "Autenticacion/CS - Autenticacion - API Consumo",
-                                "Doble Factor de Autenticacion/CS - Doble Factor de Autenticacion - API Consumo",
-                                "Uso de Datos/CS - Uso de Datos",
-                                "Consultas/Detallada Natural Y Juridica/CS - Detallada Natural Y Juridica",
-                                "Servicios ACH/CS - Servicios ACH - API Consumo",
-                                "SDH/CS - SDH - API Consumo",
-                                "Administracion/CS - Administracion - API Consumo",
-                                "Monitoreo/CS - Monitoreo - API Consumo",
-                                "Estadisticas/CS - Estadisticas - API Consumo",
-                                "Auditoria/CS - Auditoria - API Consumo",
-                                "ADMINISTRADOR ENTIDAD/CS - ADMINISTRADOR ENTIDAD - API Consumo"
-                            )
-                        },
-                        @{
-                            Nombre = "CER"
-                            Carpetas = @(
-                                "Autenticacion/CER - Autenticacion - API Security",
-                                "Doble Factor de Autenticacion/CER - Doble Factor de Autenticacion - API Security",
-                                "Uso de Datos/CER - Uso de Datos",
-                                "Consultas/Detallada Natural Y Juridica/CER - Detallada Natural Y Juridica",
-                                "Servicios ACH/CER - Servicios ACH - API Security",
-                                "SDH/CER - SDH - API Security",
-                                "Administracion/CER - Administracion - API Security",
-                                "Monitoreo/CER - Monitoreo - API Security",
-                                "Estadisticas/CER - Estadisticas - API Security",
-                                "Auditoria/CER - Auditoria - API Security",
-                                "ADMINISTRADOR ENTIDAD/CER - ADMINISTRADOR ENTIDAD - API Security"
-                            )
-                        },
-                        @{
-                            Nombre = "CERCS"
-                            Carpetas = @(
-                                "Autenticacion/CERCS - Autenticacion - API Security / API Consumo",
-                                "Doble Factor de Autenticacion/CERCS - Doble Factor de Autenticacion - API Security / API Consumo",
-                                "Uso de Datos/CERCS - Uso de Datos",
-                                "Consultas/Detallada Natural Y Juridica/CERCS - Detallada Natural Y Juridica",
-                                "Servicios ACH/CERCS - Servicios ACH - API Security / API Consumo",
-                                "SDH/CERCS - SDH - API Security / API Consumo",
-                                "Administracion/CERCS - Administracion - API Security / API Consumo",
-                                "Monitoreo/CERCS - Monitoreo - API Security / API Consumo",
-                                "Estadisticas/CERCS - Estadisticas - API Security / API Consumo",
-                                "Auditoria/CERCS - Auditoria - API Security / API Consumo",
-                                "ADMINISTRADOR ENTIDAD/CERCS - ADMINISTRADOR ENTIDAD - API Security / API Consumo"
-                            )
-                        }
+                    # Definir solo la carpeta "Autenticacion" con sus ambientes
+                    $carpetas = @(
+                        @{Nombre="AT"; Ruta="Autenticacion/AT - Autenticacion"},
+                        @{Nombre="SS"; Ruta="Autenticacion/SS - Autenticacion"},
+                        @{Nombre="CS"; Ruta="Autenticacion/CS - Autenticacion - API Consumo"},
+                        @{Nombre="CER"; Ruta="Autenticacion/CER - Autenticacion - API Security"},
+                        @{Nombre="CERCS"; Ruta="Autenticacion/CERCS - Autenticacion - API Security / API Consumo"}
                     )
                     
                     # Array para almacenar resultados
                     $resultados = @()
                     
-                    foreach ($ambiente in $ambientes) {
-                        $nombreAmbiente = $ambiente.Nombre
+                    foreach ($carpeta in $carpetas) {
+                        $nombreAmbiente = $carpeta.Nombre
+                        $rutaCarpeta = $carpeta.Ruta
                         
                         Write-Host ""
                         Write-Host "========================================" -ForegroundColor Cyan
                         Write-Host "EJECUTANDO AMBIENTE: $nombreAmbiente" -ForegroundColor Cyan
+                        Write-Host "Ruta: $rutaCarpeta" -ForegroundColor Gray
                         Write-Host "========================================" -ForegroundColor Cyan
                         Write-Host ""
                         
                         $reportHTML = "$baseReportPath\\ACHData_" + $nombreAmbiente + "_Report_" + $timestamp + ".html"
                         $reportXML = "$baseReportPath\\ACHData_" + $nombreAmbiente + "_Report_" + $timestamp + ".xml"
                         
-                        # Construir comando Newman con multiples folders
-                        $foldersParam = ""
-                        foreach ($carpeta in $ambiente.Carpetas) {
-                            $foldersParam += "--folder `"$carpeta`" "
-                        }
-                        
+                        # Construir comando Newman
                         $newmanCmd = "newman run `"Collection/ACHDATA - YY.postman_collection.json`" " +
                             "-e `"Environment/ACHData QA.postman_environment.json`" " +
-                            $foldersParam +
+                            "--folder `"$rutaCarpeta`" " +
                             "--env-var `"fileIncluirExcluir=File/Incluir_Excluir Personas.csv`" " +
                             "--env-var `"file50Registros=File/50 Registros.csv`" " +
                             "--env-var `"fileCargueMasivo=File/cargue_masivo_usuarios.csv`" " +
@@ -176,8 +97,6 @@ pipeline {
                             "--reporter-htmlextra-showOnlyFails false " +
                             "--reporter-htmlextra-darkTheme " +
                             "--insecure"
-                        
-                        Write-Host "Ejecutando $($ambiente.Carpetas.Count) carpetas del ambiente $nombreAmbiente..." -ForegroundColor Yellow
                         
                         # Ejecutar Newman
                         Invoke-Expression $newmanCmd
@@ -244,8 +163,8 @@ pipeline {
                         }
                         
                         Write-Host ""
-                        Write-Host "Esperando 3 segundos antes del siguiente ambiente..." -ForegroundColor Gray
-                        Start-Sleep -Seconds 3
+                        Write-Host "Esperando 2 segundos antes del siguiente ambiente..." -ForegroundColor Gray
+                        Start-Sleep -Seconds 2
                     }
                     
                     # Guardar resultados
@@ -452,7 +371,7 @@ pipeline {
         
         <div class="content">
             <div class="summary-box">
-                <h3>Resumen Global - Todos los Ambientes</h3>
+                <h3>Resumen Global - Autenticacion</h3>
                 <div class="stats">
                     <div class="stat-item">
                         <span class="stat-number total">$totalGlobal</span>
@@ -512,7 +431,7 @@ pipeline {
             
             <div class="info-box">
                 <strong>Archivos Adjuntos:</strong>
-                <p>Se adjuntan 5 reportes HTML detallados (uno por ambiente: AT, SS, CS, CER, CERCS). Cada reporte contiene todas las carpetas ejecutadas para ese ambiente.</p>
+                <p>Se adjuntan 5 reportes HTML detallados (AT, SS, CS, CER, CERCS) con las pruebas de Autenticacion para cada ambiente.</p>
             </div>
             
             <div class="info-box">
