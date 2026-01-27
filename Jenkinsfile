@@ -9,17 +9,6 @@ pipeline {
         )
     }
     
-    environment {
-        COLLECTION_PATH = "Collection/\"ACHDATA - YY.postman_collection.json\""
-        ENVIRONMENT_PATH = "Environment/\"ACHData QA.postman_environment.json\""
-        DATA_FILE_1 = "File/\"Incluir_Excluir Personas.csv\""
-        DATA_FILE_2 = "File/\"50 Registros.csv\""
-        DATA_FILE_3 = "File/\"cargue_masivo_usuarios.csv\""
-        EMAIL_TO = "yeinerballesta@cbit-online.com"
-        SMTP_SERVER = "email.periferia-it.com"
-        SMTP_PORT = "587"
-    }
-    
     stages {
         stage('Checkout') {
             steps {
@@ -38,32 +27,33 @@ pipeline {
             }
         }
         
-        stage('Inicializar Variables') {
+        stage('Configurar Ejecución') {
             steps {
                 script {
-                    // Obtener fecha y hora en formato Windows
-                    def dateTime = powershell(returnStdout: true, script: '''
-                        Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+                    // Obtener fecha y hora usando PowerShell
+                    def dateTimeOutput = powershell(returnStdout: true, script: '''
+                        $date = Get-Date -Format "yyyy-MM-dd"
+                        $time = Get-Date -Format "HH-mm-ss"
+                        Write-Output "${date}_${time}"
                     ''').trim()
                     
-                    def parts = dateTime.split('_')
-                    env.EXECUTION_DATE = parts[0]
-                    env.EXECUTION_TIME = parts[1]
-                    env.EXECUTION_FOLDER = "Ejecuciones\\ACHDATA\\Fecha_${env.EXECUTION_DATE}_Hora_${env.EXECUTION_TIME}"
+                    def executionFolder = "Ejecuciones\\ACHDATA\\Fecha_${dateTimeOutput.replace('_', '_Hora_')}"
+                    
+                    // Crear la carpeta directamente
+                    powershell """
+                        Write-Host "Creando carpeta de ejecución: ${executionFolder}"
+                        New-Item -ItemType Directory -Force -Path "${executionFolder}"
+                    """
+                    
+                    // Guardar en variables para usar después
+                    env.EXECUTION_FOLDER = executionFolder
+                    env.EXECUTION_DATE = dateTimeOutput.split('_')[0]
+                    env.EXECUTION_TIME = dateTimeOutput.split('_')[1]
                     
                     echo "Fecha: ${env.EXECUTION_DATE}"
                     echo "Hora: ${env.EXECUTION_TIME}"
                     echo "Carpeta: ${env.EXECUTION_FOLDER}"
                 }
-            }
-        }
-        
-        stage('Crear Carpeta de Ejecución') {
-            steps {
-                powershell '''
-                    Write-Host "Creando carpeta de ejecución: ${env.EXECUTION_FOLDER}"
-                    New-Item -ItemType Directory -Force -Path "${env.EXECUTION_FOLDER}"
-                '''
             }
         }
         
@@ -78,24 +68,25 @@ pipeline {
                         stage("Ejecutar ${folder}") {
                             powershell """
                                 \$folderName = "${folder}"
-                                \$reportFile = "\${env:EXECUTION_FOLDER}\\report_\${folderName}.html"
-                                \$jsonReport = "\${env:EXECUTION_FOLDER}\\report_\${folderName}.json"
+                                \$executionFolder = "${env.EXECUTION_FOLDER}"
+                                \$reportFile = "\$executionFolder\\report_\${folderName}.html"
+                                \$jsonReport = "\$executionFolder\\report_\${folderName}.json"
                                 
                                 Write-Host "========================================="
                                 Write-Host "Ejecutando colección para carpeta: \${folderName}"
                                 Write-Host "========================================="
                                 
                                 # Ejecutar Newman con reporte HTML y JSON
-                                newman run "${env.COLLECTION_PATH}" `
-                                    -e "${env.ENVIRONMENT_PATH}" `
+                                newman run "Collection/ACHDATA - YY.postman_collection.json" `
+                                    -e "Environment/ACHData QA.postman_environment.json" `
                                     --folder "\${folderName}" `
                                     --insecure `
                                     --reporters cli,html,json `
                                     --reporter-html-export "\${reportFile}" `
                                     --reporter-json-export "\${jsonReport}" `
-                                    --iteration-data "${env.DATA_FILE_1}" `
-                                    --iteration-data "${env.DATA_FILE_2}" `
-                                    --iteration-data "${env.DATA_FILE_3}"
+                                    --iteration-data "File/Incluir_Excluir Personas.csv" `
+                                    --iteration-data "File/50 Registros.csv" `
+                                    --iteration-data "File/cargue_masivo_usuarios.csv"
                                 
                                 # Verificar si se generó el reporte JSON
                                 if (Test-Path "\${jsonReport}") {
@@ -111,9 +102,10 @@ pipeline {
                                     Write-Host "  Fallidos: \${failed}"
                                     
                                     # Guardar resultados en archivo
-                                    "\${folderName},\${total},\${passed},\${failed}" | Out-File -FilePath "\${env:EXECUTION_FOLDER}\\resultados.csv" -Append -Encoding UTF8
+                                    "\${folderName},\${total},\${passed},\${failed}" | Out-File -FilePath "\$executionFolder\\resultados.csv" -Append -Encoding UTF8
                                 } else {
                                     Write-Host "ADVERTENCIA: No se generó reporte JSON para \${folderName}"
+                                    "\${folderName},0,0,0" | Out-File -FilePath "\$executionFolder\\resultados.csv" -Append -Encoding UTF8
                                 }
                             """
                         }
@@ -124,169 +116,129 @@ pipeline {
         
         stage('Generar Resumen de Ejecución') {
             steps {
-                powershell '''
+                powershell """
+                    \$executionFolder = "${env.EXECUTION_FOLDER}"
+                    
                     # Crear archivo de resumen
-                    $summaryFile = "${env:EXECUTION_FOLDER}\\resumen_ejecucion.txt"
+                    \$summaryFile = "\$executionFolder\\resumen_ejecucion.txt"
                     
-                    Write-Host "Generando resumen de ejecución..." | Out-File -FilePath $summaryFile
-                    Write-Host "=========================================" | Out-File -FilePath $summaryFile -Append
-                    Write-Host "Ejecución: ACHDATA" | Out-File -FilePath $summaryFile -Append
-                    Write-Host "Fecha: ${env:EXECUTION_DATE}" | Out-File -FilePath $summaryFile -Append
-                    Write-Host "Hora: ${env:EXECUTION_TIME}" | Out-File -FilePath $summaryFile -Append
-                    Write-Host "=========================================" | Out-File -FilePath $summaryFile -Append
-                    Write-Host "" | Out-File -FilePath $summaryFile -Append
-                    Write-Host "RESULTADOS POR CARPETA:" | Out-File -FilePath $summaryFile -Append
-                    Write-Host "-----------------------" | Out-File -FilePath $summaryFile -Append
+                    Write-Host "Generando resumen de ejecución..." | Out-File -FilePath \$summaryFile
+                    Write-Host "=========================================" | Out-File -FilePath \$summaryFile -Append
+                    Write-Host "Ejecución: ACHDATA" | Out-File -FilePath \$summaryFile -Append
+                    Write-Host "Fecha: ${env.EXECUTION_DATE}" | Out-File -FilePath \$summaryFile -Append
+                    Write-Host "Hora: ${env.EXECUTION_TIME}" | Out-File -FilePath \$summaryFile -Append
+                    Write-Host "=========================================" | Out-File -FilePath \$summaryFile -Append
+                    Write-Host "" | Out-File -FilePath \$summaryFile -Append
+                    Write-Host "RESULTADOS POR CARPETA:" | Out-File -FilePath \$summaryFile -Append
+                    Write-Host "-----------------------" | Out-File -FilePath \$summaryFile -Append
                     
-                    if (Test-Path "${env:EXECUTION_FOLDER}\\resultados.csv") {
-                        $lines = Get-Content "${env:EXECUTION_FOLDER}\\resultados.csv"
+                    if (Test-Path "\$executionFolder\\resultados.csv") {
+                        \$lines = Get-Content "\$executionFolder\\resultados.csv"
                         
-                        foreach ($line in $lines) {
-                            $parts = $line.Split(',')
-                            if ($parts.Count -eq 4) {
-                                $folder = $parts[0].Trim()
-                                $total = $parts[1].Trim()
-                                $passed = $parts[2].Trim()
-                                $failed = $parts[3].Trim()
+                        foreach (\$line in \$lines) {
+                            \$parts = \$line.Split(',')
+                            if (\$parts.Count -eq 4) {
+                                \$folder = \$parts[0].Trim()
+                                \$total = \$parts[1].Trim()
+                                \$passed = \$parts[2].Trim()
+                                \$failed = \$parts[3].Trim()
                                 
-                                $formattedLine = "ACHDATA - $folder | Total: $total | Exitosos: $passed | Fallidos: $failed"
-                                Write-Host $formattedLine | Out-File -FilePath $summaryFile -Append
+                                \$formattedLine = "ACHDATA - \$folder | Total: \$total | Exitosos: \$passed | Fallidos: \$failed"
+                                Write-Host \$formattedLine | Out-File -FilePath \$summaryFile -Append
                             }
                         }
                     } else {
-                        Write-Host "No se encontró el archivo de resultados" | Out-File -FilePath $summaryFile -Append
+                        Write-Host "No se encontró el archivo de resultados" | Out-File -FilePath \$summaryFile -Append
                     }
                     
                     # Contar archivos HTML generados
-                    $htmlReports = Get-ChildItem "${env:EXECUTION_FOLDER}" -Filter "*.html"
-                    Write-Host "" | Out-File -FilePath $summaryFile -Append
-                    Write-Host "=========================================" | Out-File -FilePath $summaryFile -Append
-                    Write-Host "Total de reportes HTML generados: $($htmlReports.Count)" | Out-File -FilePath $summaryFile -Append
+                    \$htmlReports = Get-ChildItem "\$executionFolder" -Filter "*.html"
+                    Write-Host "" | Out-File -FilePath \$summaryFile -Append
+                    Write-Host "=========================================" | Out-File -FilePath \$summaryFile -Append
+                    Write-Host "Total de reportes HTML generados: \$(\$htmlReports.Count)" | Out-File -FilePath \$summaryFile -Append
                     
                     # Mostrar resumen en consola
                     Write-Host ""
                     Write-Host "=== RESUMEN DE EJECUCIÓN ==="
-                    Get-Content $summaryFile
-                '''
+                    Get-Content \$summaryFile
+                """
             }
         }
         
         stage('Enviar Reportes por Correo') {
             steps {
                 script {
-                    // Buscar todos los reportes HTML
-                    def htmlFiles = powershell(returnStdout: true, script: '''
-                        Get-ChildItem "${env:EXECUTION_FOLDER}" -Filter "*.html" | 
-                        Select-Object -ExpandProperty Name
-                    ''').trim()
+                    // Primero verificar que existan reportes
+                    def htmlFiles = powershell(returnStdout: true, script: """
+                        \$executionFolder = "${env.EXECUTION_FOLDER}"
+                        if (Test-Path "\$executionFolder") {
+                            \$files = Get-ChildItem "\$executionFolder" -Filter "*.html" | Select-Object -ExpandProperty Name
+                            if (\$files) {
+                                Write-Output "\$files"
+                            } else {
+                                Write-Output "NO_FILES"
+                            }
+                        } else {
+                            Write-Output "NO_FOLDER"
+                        }
+                    """).trim()
                     
-                    def htmlFileList = htmlFiles ? htmlFiles.split('\\r\\n') : []
+                    echo "Archivos HTML encontrados: ${htmlFiles}"
                     
-                    // Leer el resumen para el cuerpo del correo
+                    // Leer resultados para el cuerpo del correo
                     def summaryContent = ""
-                    if (fileExists("${env.EXECUTION_FOLDER}/resumen_ejecucion.txt")) {
+                    try {
                         summaryContent = readFile("${env.EXECUTION_FOLDER}/resumen_ejecucion.txt")
+                    } catch (Exception e) {
+                        summaryContent = "No se pudo leer el resumen de ejecución"
                     }
                     
-                    // Preparar cuerpo del correo HTML
+                    // Preparar cuerpo del correo
                     def emailBody = """
                     <html>
-                    <head>
-                        <style>
-                            body { font-family: Arial, sans-serif; }
-                            table { border-collapse: collapse; width: 100%; }
-                            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-                            th { background-color: #f2f2f2; }
-                            .success { color: green; }
-                            .failure { color: red; }
-                            .info { background-color: #e7f3fe; padding: 15px; border-left: 6px solid #2196F3; }
-                        </style>
-                    </head>
-                    <body>
-                        <div class="info">
-                            <h2>📊 Reporte de Ejecución Postman - ACHDATA</h2>
-                            <p><strong>Fecha de ejecución:</strong> ${env.EXECUTION_DATE} ${env.EXECUTION_TIME}</p>
-                        </div>
+                    <body style="font-family: Arial, sans-serif;">
+                        <h2>Reporte de Ejecución Postman - ACHDATA</h2>
+                        <p><strong>Fecha de ejecución:</strong> ${env.EXECUTION_DATE} ${env.EXECUTION_TIME}</p>
                         
-                        <br>
-                        <h3>📋 Resumen de Resultados:</h3>
-                        <table>
-                            <tr>
-                                <th>Carpeta</th>
-                                <th>Total Casos</th>
-                                <th>Exitosos</th>
-                                <th>Fallidos</th>
-                            </tr>
-                    """
-                    
-                    // Leer resultados del archivo CSV
-                    if (fileExists("${env.EXECUTION_FOLDER}/resultados.csv")) {
-                        def results = readFile("${env.EXECUTION_FOLDER}/resultados.csv")
-                        def lines = results.split('\\r\\n')
+                        <h3>Resumen de Resultados:</h3>
+                        <pre style="background-color: #f5f5f5; padding: 15px; border-radius: 5px;">
+                    ${summaryContent}
+                        </pre>
                         
-                        lines.each { line ->
-                            def parts = line.split(',')
-                            if (parts.size() == 4) {
-                                def folder = parts[0].trim()
-                                def total = parts[1].trim()
-                                def passed = parts[2].trim()
-                                def failed = parts[3].trim()
-                                
-                                emailBody += """
-                                <tr>
-                                    <td><strong>ACHDATA - ${folder}</strong></td>
-                                    <td>${total}</td>
-                                    <td class="success">${passed}</td>
-                                    <td ${failed != '0' ? 'class="failure"' : ''}>${failed}</td>
-                                </tr>
-                                """
-                            }
-                        }
-                    }
-                    
-                    emailBody += """
-                        </table>
-                        <br>
-                        <div>
-                            <h3>📎 Archivos Adjuntos:</h3>
-                            <p>Se adjuntan ${htmlFileList.size()} reportes HTML:</p>
-                            <ul>
-                    """
-                    
-                    htmlFileList.each { fileName ->
-                        emailBody += "<li>${fileName}</li>"
-                    }
-                    
-                    emailBody += """
-                            </ul>
-                        </div>
-                        <br>
-                        <div style="margin-top: 20px; padding: 10px; background-color: #f9f9f9;">
-                            <p><strong>Nota:</strong> Este correo fue generado automáticamente por Jenkins.</p>
-                        </div>
+                        <p><strong>📎 Reportes adjuntos:</strong> ${htmlFiles.split('\\r\\n').size()} archivos HTML</p>
+                        
+                        <hr>
+                        <p><em>Este correo fue generado automáticamente por Jenkins.</em></p>
                     </body>
                     </html>
                     """
                     
-                    // Enviar correo (versión simplificada primero)
-                    echo "Preparando envío de correo a: ${env.EMAIL_TO}"
-                    echo "Adjuntando ${htmlFileList.size()} archivos HTML"
-                    echo "Carpeta de reportes: ${env.EXECUTION_FOLDER}"
+                    // Enviar correo
+                    echo "Enviando correo a: yeinerballesta@cbit-online.com"
+                    echo "Desde servidor: email.periferia-it.com:587"
                     
-                    // Si tienes configurado el plugin de email, usa esto:
-                    emailext(
-                        to: "${env.EMAIL_TO}",
-                        subject: "Reporte de Ejecución Postman - ACHDATA - ${env.EXECUTION_DATE}",
-                        body: emailBody,
-                        mimeType: 'text/html',
-                        attachmentsPattern: "${env.EXECUTION_FOLDER}/**/*.html",
-                        from: "jenkins@cbit-online.com",
-                        smtpServer: "${env.SMTP_SERVER}",
-                        smtpPort: "${env.SMTP_PORT}"
-                        // Agrega credenciales si son necesarias
-                        // smtpUsername: credentials('smtp-user').username,
-                        // smtpPassword: credentials('smtp-pass').password
-                    )
+                    // Si el plugin de email está configurado
+                    try {
+                        emailext(
+                            to: 'yeinerballesta@cbit-online.com',
+                            subject: "Reporte de Ejecución Postman - ACHDATA - ${env.EXECUTION_DATE}",
+                            body: emailBody,
+                            mimeType: 'text/html',
+                            attachmentsPattern: "${env.EXECUTION_FOLDER}/**/*.html",
+                            from: 'jenkins@cbit-online.com',
+                            smtpServer: 'email.periferia-it.com',
+                            smtpPort: '587'
+                            // Agregar credenciales si son necesarias
+                            // smtpUsername: 'tu_usuario',
+                            // smtpPassword: 'tu_password',
+                            // smtpAuth: true
+                        )
+                        echo "Correo enviado exitosamente"
+                    } catch (Exception e) {
+                        echo "No se pudo enviar el correo: ${e.message}"
+                        echo "Cuerpo del correo preparado pero no enviado"
+                        echo emailBody
+                    }
                 }
             }
         }
@@ -298,10 +250,11 @@ pipeline {
             echo "Reportes guardados en: ${env.EXECUTION_FOLDER}"
             
             // Archivar reportes
-            archiveArtifacts artifacts: "${env.EXECUTION_FOLDER}/**/*", allowEmptyArchive: true
-            
-            // Limpiar archivos temporales si es necesario
-            cleanWs()
+            try {
+                archiveArtifacts artifacts: "${env.EXECUTION_FOLDER}/**/*", allowEmptyArchive: true
+            } catch (Exception e) {
+                echo "No se pudieron archivar los artefactos: ${e.message}"
+            }
         }
         success {
             echo 'Ejecución completada correctamente'
