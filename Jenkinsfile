@@ -33,7 +33,7 @@ pipeline {
                     $timestamp = Get-Date -Format "yyyyMMdd_HHmm"
                     
                     # Formato: Fecha_2026-01-26_Hora_16-37
-                    $baseReportPath = "Ejecuciones\\ACHDATA\\Fecha_$fecha`_Hora_$hora"
+                    $baseReportPath = "Ejecuciones\\ACHDATA\\Fecha_" + $fecha + "_Hora_" + $hora
                     
                     New-Item -ItemType Directory -Force -Path $baseReportPath | Out-Null
                     Write-Host "Directorio creado: $baseReportPath" -ForegroundColor Green
@@ -63,30 +63,34 @@ pipeline {
                     $resultados = @()
                     
                     foreach ($carpeta in $carpetas) {
-                        Write-Host "`n========================================" -ForegroundColor Cyan
+                        Write-Host ""
+                        Write-Host "========================================" -ForegroundColor Cyan
                         Write-Host "Ejecutando carpeta: $carpeta" -ForegroundColor Cyan
-                        Write-Host "========================================`n" -ForegroundColor Cyan
+                        Write-Host "========================================" -ForegroundColor Cyan
+                        Write-Host ""
                         
-                        $reportHTML = "$baseReportPath\\ACHData_$carpeta`_Report_$timestamp.html"
-                        $reportXML = "$baseReportPath\\ACHData_$carpeta`_Report_$timestamp.xml"
+                        $reportHTML = "$baseReportPath\\ACHData_" + $carpeta + "_Report_" + $timestamp + ".html"
+                        $reportXML = "$baseReportPath\\ACHData_" + $carpeta + "_Report_" + $timestamp + ".xml"
                         
-                        # Ejecutar Newman con folder específico
-                        newman run "Collection/ACHDATA - YY.postman_collection.json" `
-                            -e "Environment/ACHData QA.postman_environment.json" `
-                            --folder "$carpeta" `
-                            --env-var "fileIncluirExcluir=File/Incluir_Excluir Personas.csv" `
-                            --env-var "file50Registros=File/50 Registros.csv" `
-                            --env-var "fileCargueMasivo=File/cargue_masivo_usuarios.csv" `
-                            --delay-request 1000 `
-                            --timeout-request 31000 `
-                            --reporters "cli,htmlextra,junit" `
-                            --reporter-htmlextra-export "$reportHTML" `
-                            --reporter-junit-export "$reportXML" `
-                            --reporter-htmlextra-title "ACHData $carpeta - $fecha $hora" `
-                            --reporter-htmlextra-showOnlyFails false `
-                            --reporter-htmlextra-darkTheme `
-                            --insecure
+                        # Construir comando Newman
+                        $newmanCmd = "newman run `"Collection/ACHDATA - YY.postman_collection.json`" " +
+                            "-e `"Environment/ACHData QA.postman_environment.json`" " +
+                            "--folder `"$carpeta`" " +
+                            "--env-var `"fileIncluirExcluir=File/Incluir_Excluir Personas.csv`" " +
+                            "--env-var `"file50Registros=File/50 Registros.csv`" " +
+                            "--env-var `"fileCargueMasivo=File/cargue_masivo_usuarios.csv`" " +
+                            "--delay-request 1000 " +
+                            "--timeout-request 31000 " +
+                            "--reporters `"cli,htmlextra,junit`" " +
+                            "--reporter-htmlextra-export `"$reportHTML`" " +
+                            "--reporter-junit-export `"$reportXML`" " +
+                            "--reporter-htmlextra-title `"ACHData $carpeta - $fecha $hora`" " +
+                            "--reporter-htmlextra-showOnlyFails false " +
+                            "--reporter-htmlextra-darkTheme " +
+                            "--insecure"
                         
+                        # Ejecutar Newman
+                        Invoke-Expression $newmanCmd
                         $exitCode = $LASTEXITCODE
                         
                         # Procesar resultados del XML
@@ -103,7 +107,6 @@ pipeline {
                                     $exitosos = $total - $failures - $errors - $skipped
                                     $fallidos = $failures + $errors
                                 } else {
-                                    # Si no hay testsuite, valores por defecto
                                     $total = 0
                                     $exitosos = 0
                                     $fallidos = 0
@@ -118,13 +121,14 @@ pipeline {
                                     ExitCode = $exitCode
                                 }
                                 
-                                Write-Host "`n--- Resumen $carpeta ---" -ForegroundColor Yellow
+                                Write-Host ""
+                                Write-Host "--- Resumen $carpeta ---" -ForegroundColor Yellow
                                 Write-Host "Total: $total | Exitosos: $exitosos | Fallidos: $fallidos" -ForegroundColor Yellow
                                 
                                 if ($exitosos -eq $total -and $total -gt 0) {
-                                    Write-Host "✓ Todas las pruebas pasaron" -ForegroundColor Green
+                                    Write-Host "Todas las pruebas pasaron" -ForegroundColor Green
                                 } elseif ($fallidos -gt 0) {
-                                    Write-Host "✗ Hay pruebas fallidas" -ForegroundColor Red
+                                    Write-Host "Hay pruebas fallidas" -ForegroundColor Red
                                 }
                             } catch {
                                 Write-Host "Advertencia: No se pudo parsear XML para $carpeta - $_" -ForegroundColor Yellow
@@ -138,7 +142,7 @@ pipeline {
                                 }
                             }
                         } else {
-                            Write-Host "Advertencia: No se generó reporte XML para $carpeta" -ForegroundColor Yellow
+                            Write-Host "Advertencia: No se genero reporte XML para $carpeta" -ForegroundColor Yellow
                             $resultados += @{
                                 Carpeta = $carpeta
                                 Total = 0
@@ -156,8 +160,9 @@ pipeline {
                     $resultados | ConvertTo-Json -Depth 10 | Out-File "resultados.json" -Encoding UTF8
                     
                     # Resumen global
-                    Write-Host "`n========================================" -ForegroundColor Green
-                    Write-Host "RESUMEN GLOBAL DE EJECUCIÓN" -ForegroundColor Green
+                    Write-Host ""
+                    Write-Host "========================================" -ForegroundColor Green
+                    Write-Host "RESUMEN GLOBAL DE EJECUCION" -ForegroundColor Green
                     Write-Host "========================================" -ForegroundColor Green
                     
                     $totalGlobal = ($resultados | Measure-Object -Property Total -Sum).Sum
@@ -189,15 +194,16 @@ pipeline {
                     $fallidosGlobal = ($resultadosJson | Measure-Object -Property Fallidos -Sum).Sum
                     
                     # Determinar estado general
-                    $estadoGeneral = if ($fallidosGlobal -eq 0 -and $totalGlobal -gt 0) { 
-                        "EXITOSA ✓" 
-                    } elseif ($fallidosGlobal -gt 0) { 
-                        "CON FALLOS ✗" 
-                    } else { 
-                        "SIN PRUEBAS" 
+                    if ($fallidosGlobal -eq 0 -and $totalGlobal -gt 0) {
+                        $estadoGeneral = "EXITOSA"
+                        $colorEstado = "#27ae60"
+                    } elseif ($fallidosGlobal -gt 0) {
+                        $estadoGeneral = "CON FALLOS"
+                        $colorEstado = "#e74c3c"
+                    } else {
+                        $estadoGeneral = "SIN PRUEBAS"
+                        $colorEstado = "#95a5a6"
                     }
-                    
-                    $colorEstado = if ($fallidosGlobal -eq 0) { "#27ae60" } else { "#e74c3c" }
                     
                     # Construir cuerpo del email
                     $cuerpoHTML = @"
@@ -371,20 +377,15 @@ pipeline {
 "@
                     
                     foreach ($resultado in $resultadosJson) {
-                        $estadoCarpeta = if ($resultado.Fallidos -eq 0 -and $resultado.Total -gt 0) { 
-                            "✓ PASS" 
-                        } elseif ($resultado.Fallidos -gt 0) { 
-                            "✗ FAIL" 
-                        } else { 
-                            "⊝ N/A" 
-                        }
-                        
-                        $colorEstadoCarpeta = if ($resultado.Fallidos -eq 0 -and $resultado.Total -gt 0) { 
-                            "exitoso" 
-                        } elseif ($resultado.Fallidos -gt 0) { 
-                            "fallido" 
-                        } else { 
-                            "" 
+                        if ($resultado.Fallidos -eq 0 -and $resultado.Total -gt 0) {
+                            $estadoCarpeta = "PASS"
+                            $colorEstadoCarpeta = "exitoso"
+                        } elseif ($resultado.Fallidos -gt 0) {
+                            $estadoCarpeta = "FAIL"
+                            $colorEstadoCarpeta = "fallido"
+                        } else {
+                            $estadoCarpeta = "N/A"
+                            $colorEstadoCarpeta = ""
                         }
                         
                         $cuerpoHTML += @"
@@ -403,18 +404,18 @@ pipeline {
             </table>
             
             <div class="info-box">
-                <strong>📎 Archivos Adjuntos:</strong>
-                <p>Los reportes detallados en formato HTML están adjuntos a este correo. Ábralos en su navegador para ver el análisis completo de cada ejecución.</p>
+                <strong>Archivos Adjuntos:</strong>
+                <p>Los reportes detallados en formato HTML estan adjuntos a este correo. Abralos en su navegador para ver el analisis completo de cada ejecucion.</p>
             </div>
             
             <div class="info-box">
-                <strong>Ubicación de Reportes:</strong>
+                <strong>Ubicacion de Reportes:</strong>
                 <p><code>$baseReportPath</code></p>
             </div>
         </div>
         
         <div class="footer">
-            <p><strong>Generado automáticamente por Jenkins</strong></p>
+            <p><strong>Generado automaticamente por Jenkins</strong></p>
             <p>Pipeline: <strong>$env:JOB_NAME</strong> | Build: <strong>#$env:BUILD_NUMBER</strong></p>
             <p>Servidor: <strong>$env:COMPUTERNAME</strong></p>
             <p style="margin-top: 10px;">ACHData - Sistema de Pruebas Automatizadas</p>
@@ -432,8 +433,9 @@ pipeline {
                         }
                     }
                     
-                    Write-Host "`n========================================" -ForegroundColor Cyan
-                    Write-Host "PREPARANDO ENVÍO DE EMAIL" -ForegroundColor Cyan
+                    Write-Host ""
+                    Write-Host "========================================" -ForegroundColor Cyan
+                    Write-Host "PREPARANDO ENVIO DE EMAIL" -ForegroundColor Cyan
                     Write-Host "========================================" -ForegroundColor Cyan
                     Write-Host "Reportes HTML encontrados: $($reportesHTML.Count)" -ForegroundColor Cyan
                     
@@ -457,7 +459,8 @@ pipeline {
                             if (Test-Path $reporte) {
                                 $attachment = New-Object System.Net.Mail.Attachment($reporte)
                                 $Message.Attachments.Add($attachment)
-                                Write-Host "✓ Adjuntado: $(Split-Path $reporte -Leaf)" -ForegroundColor Green
+                                $nombreArchivo = Split-Path $reporte -Leaf
+                                Write-Host "Adjuntado: $nombreArchivo" -ForegroundColor Green
                             }
                         }
                         
@@ -465,7 +468,7 @@ pipeline {
                         $SMTPClient = New-Object System.Net.Mail.SmtpClient($env:SMTP_SERVER, $env:SMTP_PORT)
                         $SMTPClient.EnableSsl = $true
                         
-                        # Usar credenciales de Jenkins si están disponibles
+                        # Usar credenciales de Jenkins si estan disponibles
                         if ($env:EMAIL_USER -and $env:EMAIL_PASSWORD) {
                             $SMTPClient.Credentials = New-Object System.Net.NetworkCredential(
                                 $env:EMAIL_USER, 
@@ -473,17 +476,19 @@ pipeline {
                             )
                             Write-Host "Usando credenciales configuradas" -ForegroundColor Yellow
                         } else {
-                            Write-Host "ADVERTENCIA: No hay credenciales configuradas. El envío puede fallar." -ForegroundColor Yellow
+                            Write-Host "ADVERTENCIA: No hay credenciales configuradas. El envio puede fallar." -ForegroundColor Yellow
                         }
                         
                         # Enviar email
-                        Write-Host "`nEnviando email a: $To" -ForegroundColor Cyan
+                        Write-Host ""
+                        Write-Host "Enviando email a: $To" -ForegroundColor Cyan
                         Write-Host "Servidor SMTP: $($env:SMTP_SERVER):$($env:SMTP_PORT)" -ForegroundColor Cyan
                         $SMTPClient.Send($Message)
-                        Write-Host "✓ Email enviado exitosamente" -ForegroundColor Green
+                        Write-Host "Email enviado exitosamente" -ForegroundColor Green
                         
                     } catch {
-                        Write-Host "`n✗ Error al enviar email" -ForegroundColor Red
+                        Write-Host ""
+                        Write-Host "Error al enviar email" -ForegroundColor Red
                         Write-Host "Detalles: $($_.Exception.Message)" -ForegroundColor Red
                         
                         if ($_.Exception.InnerException) {
@@ -491,18 +496,15 @@ pipeline {
                         }
                         
                         # No lanzar error para no fallar el build
-                        Write-Host "`nLos reportes están disponibles en: $baseReportPath" -ForegroundColor Yellow
-                        Write-Host "Continuando sin envío de email..." -ForegroundColor Yellow
+                        Write-Host ""
+                        Write-Host "Los reportes estan disponibles en: $baseReportPath" -ForegroundColor Yellow
+                        Write-Host "Continuando sin envio de email..." -ForegroundColor Yellow
                         
                     } finally {
                         # Limpiar recursos
                         if ($Message) { $Message.Dispose() }
                         if ($SMTPClient) { $SMTPClient.Dispose() }
                     }
-                    
-                } catch {
-                    Write-Host "Error general en envío de email: $_" -ForegroundColor Red
-                }
                 '''
             }
         }
@@ -511,7 +513,8 @@ pipeline {
     post {
         always {
             powershell '''
-                Write-Host "`n========================================" -ForegroundColor Magenta
+                Write-Host ""
+                Write-Host "========================================" -ForegroundColor Magenta
                 Write-Host "LIMPIEZA DE ARCHIVOS TEMPORALES" -ForegroundColor Magenta
                 Write-Host "========================================" -ForegroundColor Magenta
                 
@@ -521,18 +524,19 @@ pipeline {
                 foreach ($file in $tempFiles) {
                     if (Test-Path $file) {
                         Remove-Item $file -Force
-                        Write-Host "✓ Eliminado: $file" -ForegroundColor Gray
+                        Write-Host "Eliminado: $file" -ForegroundColor Gray
                     }
                 }
                 
-                Write-Host "Limpieza completada`n" -ForegroundColor Green
+                Write-Host "Limpieza completada" -ForegroundColor Green
+                Write-Host ""
             '''
         }
         failure {
             echo 'Fallaron las pruebas Postman'
         }
         success {
-            echo 'Ejecución completada correctamente y reportes enviados'
+            echo 'Ejecucion completada correctamente y reportes enviados'
         }
     }
 }
