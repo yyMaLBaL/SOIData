@@ -28,34 +28,34 @@ pipeline {
         }
         
         stage('Configurar Ejecución') {
-    steps {
-        script {
-            // Obtener fecha y hora usando PowerShell
-            def dateTimeOutput = powershell(returnStdout: true, script: '''
-                $date = Get-Date -Format "yyyy-MM-dd"
-                $time = Get-Date -Format "HH-mm-ss"
-                Write-Output "${date}_${time}"
-            ''').trim()
-            
-            def executionFolder = "Ejecuciones/ACHDATA/Fecha_${dateTimeOutput.replace('_', '_Hora_')}"
-            
-            // Crear la carpeta directamente
-            powershell """
-                Write-Host "Creando carpeta de ejecución: ${executionFolder}"
-                New-Item -ItemType Directory -Force -Path "${executionFolder}"
-            """
-            
-            // Guardar en variables para usar después
-            env.EXECUTION_FOLDER = executionFolder
-            env.EXECUTION_DATE = dateTimeOutput.split('_')[0]
-            env.EXECUTION_TIME = dateTimeOutput.split('_')[1]
-            
-            echo "Fecha: ${env.EXECUTION_DATE}"
-            echo "Hora: ${env.EXECUTION_TIME}"
-            echo "Carpeta: ${env.EXECUTION_FOLDER}"
+            steps {
+                script {
+                    // Obtener fecha y hora usando PowerShell
+                    def dateTimeOutput = powershell(returnStdout: true, script: '''
+                        $date = Get-Date -Format "yyyy-MM-dd"
+                        $time = Get-Date -Format "HH-mm-ss"
+                        Write-Output "${date}_${time}"
+                    ''').trim()
+                    
+                    def executionFolder = "Ejecuciones/ACHDATA/Fecha_${dateTimeOutput.replace('_', '_Hora_')}"
+                    
+                    // Crear la carpeta directamente
+                    powershell """
+                        Write-Host "Creando carpeta de ejecución: ${executionFolder}"
+                        New-Item -ItemType Directory -Force -Path "${executionFolder}"
+                    """
+                    
+                    // Guardar en variables para usar después
+                    env.EXECUTION_FOLDER = executionFolder
+                    env.EXECUTION_DATE = dateTimeOutput.split('_')[0]
+                    env.EXECUTION_TIME = dateTimeOutput.split('_')[1]
+                    
+                    echo "Fecha: ${env.EXECUTION_DATE}"
+                    echo "Hora: ${env.EXECUTION_TIME}"
+                    echo "Carpeta: ${env.EXECUTION_FOLDER}"
+                }
+            }
         }
-    }
-}
         
         stage('Ejecutar Colección Postman') {
             steps {
@@ -215,7 +215,6 @@ pipeline {
                     
                     // Enviar correo
                     echo "Enviando correo a: yeinerballesta@cbit-online.com"
-                    echo "Desde servidor: email.periferia-it.com:587"
                     
                     // Si el plugin de email está configurado
                     try {
@@ -225,19 +224,12 @@ pipeline {
                             body: emailBody,
                             mimeType: 'text/html',
                             attachmentsPattern: "${env.EXECUTION_FOLDER}/**/*.html",
-                            from: 'jenkins@cbit-online.com',
-                            smtpServer: 'email.periferia-it.com',
-                            smtpPort: '587'
-                            // Agregar credenciales si son necesarias
-                            // smtpUsername: 'tu_usuario',
-                            // smtpPassword: 'tu_password',
-                            // smtpAuth: true
+                            from: 'jenkins@cbit-online.com'
                         )
                         echo "Correo enviado exitosamente"
                     } catch (Exception e) {
                         echo "No se pudo enviar el correo: ${e.message}"
                         echo "Cuerpo del correo preparado pero no enviado"
-                        echo emailBody
                     }
                 }
             }
@@ -246,14 +238,16 @@ pipeline {
     
     post {
         always {
-            echo "Proceso de ejecución completado"
-            echo "Reportes guardados en: ${env.EXECUTION_FOLDER}"
-            
-            // Archivar reportes
-            try {
-                archiveArtifacts artifacts: "${env.EXECUTION_FOLDER}/**/*", allowEmptyArchive: true
-            } catch (Exception e) {
-                echo "No se pudieron archivar los artefactos: ${e.message}"
+            script {
+                echo "Proceso de ejecución completado"
+                echo "Reportes guardados en: ${env.EXECUTION_FOLDER}"
+                
+                // Archivar reportes
+                try {
+                    archiveArtifacts artifacts: "${env.EXECUTION_FOLDER}/**/*", allowEmptyArchive: true
+                } catch (Exception e) {
+                    echo "No se pudieron archivar los artefactos: ${e.message}"
+                }
             }
         }
         success {
