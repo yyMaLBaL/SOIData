@@ -11,14 +11,14 @@ pipeline {
             name: 'SECCION',
             choices: [
                 'TODAS',
-                'Autenticación',
+                'Autenticacion',
                 'Consultas',
                 'Servicios ACH',
                 'SDH',
-                'Administración',
+                'Administracion',
                 'Monitoreo'
             ],
-            description: 'Selecciona la sección a ejecutar'
+            description: 'Selecciona la seccion a ejecutar'
         )
     }
     
@@ -40,7 +40,7 @@ pipeline {
             }
         }
         
-        stage('Configurar Ejecución') {
+        stage('Configurar Ejecucion') {
             steps {
                 script {
                     def dateTimeOutput = powershell(returnStdout: true, script: '''
@@ -52,7 +52,7 @@ pipeline {
                     def executionFolder = "Ejecuciones/ACHDATA/Fecha_${dateTimeOutput.replace('_', '_Hora_')}"
                     
                     powershell """
-                        Write-Host "Creando carpeta de ejecución: ${executionFolder}"
+                        Write-Host "Creando carpeta de ejecucion: ${executionFolder}"
                         New-Item -ItemType Directory -Force -Path "${executionFolder}"
                     """
                     
@@ -67,12 +67,18 @@ pipeline {
             }
         }
         
-        stage('Ejecutar Colección Postman') {
+        stage('Ejecutar Coleccion Postman') {
             steps {
                 script {
-                    // Definir todas las carpetas por sección
+                    // Mapa de nombres sin acentos a nombres reales en Postman
+                    def nombresMapeados = [
+                        'Autenticacion': 'Autenticación',
+                        'Administracion': 'Administración'
+                    ]
+                    
+                    // Definir todas las carpetas por seccion
                     def todasLasCarpetas = [
-                        'Autenticación': ['Autenticación'],
+                        'Autenticacion': ['Autenticación'],
                         'Consultas': [
                             'Detallada Natural Y Jurídica',
                             'Consolidada Natural',
@@ -89,7 +95,7 @@ pipeline {
                         ],
                         'Servicios ACH': ['Servicios ACH'],
                         'SDH': ['SDH'],
-                        'Administración': [
+                        'Administracion': [
                             'Estadísticas',
                             'Auditoría',
                             'Usuarios',
@@ -99,7 +105,7 @@ pipeline {
                         'Monitoreo': ['Monitoreo']
                     ]
                     
-                    // Determinar qué carpetas ejecutar según la selección
+                    // Determinar que carpetas ejecutar segun la seleccion
                     def carpetasAEjecutar = []
                     if (params.SECCION == 'TODAS') {
                         todasLasCarpetas.each { seccion, carpetas ->
@@ -117,21 +123,23 @@ pipeline {
                     echo "Carpetas a ejecutar: ${carpetasAEjecutar}"
                     echo "Ambientes a ejecutar: ${ambientes}"
                     
-                    // Ejecutar cada combinación
+                    // Ejecutar cada combinacion
                     carpetasAEjecutar.each { carpeta ->
                         ambientes.each { ambiente ->
                             // Construir el nombre de la carpeta
                             def folderName = "${ambiente} - ${carpeta}"
                             
                             stage("${ambiente} - ${carpeta}") {
-                                // Usar script de PowerShell que no falla si la carpeta no existe
                                 def exitCode = powershell(returnStatus: true, script: """
                                     \$folderName = "${folderName}"
                                     \$ambiente = "${ambiente}"
                                     \$carpeta = "${carpeta}"
                                     \$executionFolder = "${env.EXECUTION_FOLDER}".Replace('/', '\\')
-                                    \$reportFile = "\$executionFolder\\report_\${ambiente}_\${carpeta}.html".Replace(' ', '_')
-                                    \$jsonReport = "\$executionFolder\\report_\${ambiente}_\${carpeta}.json".Replace(' ', '_')
+                                    
+                                    # Crear nombres de archivo seguros (sin espacios ni caracteres especiales)
+                                    \$safeFileName = ("\${ambiente}_\${carpeta}" -replace ' ', '_' -replace '[^a-zA-Z0-9_-]', '')
+                                    \$reportFile = "\$executionFolder\\report_\${safeFileName}.html"
+                                    \$jsonReport = "\$executionFolder\\report_\${safeFileName}.json"
                                     \$resultadosFile = "\$executionFolder\\resultados.csv"
                                     
                                     Write-Host "========================================="
@@ -142,23 +150,24 @@ pipeline {
                                     
                                     \$newmanExitCode = 0
                                     \$folderExists = \$false
+                                    \$outputText = ""
                                     
                                     try {
-                                        # Intentar ejecutar Newman
-                                        newman run "Collection/ACHDATA - YY.postman_collection.json" `
-                                            -e "Environment/ACHData QA.postman_environment.json" `
-                                            --folder "\${folderName}" `
-                                            --insecure `
-                                            --reporters cli,html,json `
-                                            --reporter-html-export "\${reportFile}" `
-                                            --reporter-json-export "\${jsonReport}" `
-                                            2>&1 | Tee-Object -Variable newmanOutput
+                                        # Ejecutar Newman y capturar salida
+                                        \$outputText = newman run "Collection/ACHDATA - YY.postman_collection.json" ``
+                                            -e "Environment/ACHData QA.postman_environment.json" ``
+                                            --folder "\${folderName}" ``
+                                            --insecure ``
+                                            --reporters cli,html,json ``
+                                            --reporter-html-export "\${reportFile}" ``
+                                            --reporter-json-export "\${jsonReport}" 2>&1 | Out-String
                                         
                                         \$newmanExitCode = \$LASTEXITCODE
+                                        Write-Host \$outputText
                                         
                                         # Verificar si el error es por carpeta no encontrada
-                                        if (\$newmanOutput -match "Unable to find a folder") {
-                                            Write-Host "⚠️  Carpeta '\${folderName}' no encontrada en la colección"
+                                        if (\$outputText -match "Unable to find a folder") {
+                                            Write-Host "[INFO] Carpeta no encontrada en la coleccion"
                                             \$folderExists = \$false
                                         } else {
                                             \$folderExists = \$true
@@ -183,20 +192,19 @@ pipeline {
                                             \$passedAssertions = \$totalAssertions - \$failedAssertions
                                             
                                             Write-Host ""
-                                            Write-Host "✅ Resultados para \${folderName}:"
+                                            Write-Host "[OK] Resultados para \${folderName}:"
                                             Write-Host "  Requests - Total: \${totalRequests} | Exitosos: \${passedRequests} | Fallidos: \${failedRequests}"
                                             Write-Host "  Assertions - Total: \${totalAssertions} | Exitosos: \${passedAssertions} | Fallidos: \${failedAssertions}"
                                             Write-Host ""
                                             
-                                            # Guardar en CSV con estado
+                                            # Guardar en CSV
                                             "\${ambiente},\${carpeta},EJECUTADO,\${totalRequests},\${passedRequests},\${failedRequests},\${totalAssertions},\${passedAssertions},\${failedAssertions}" | Out-File -FilePath "\${resultadosFile}" -Append -Encoding UTF8
                                         } catch {
                                             Write-Host "Error procesando JSON: \$_"
                                             "\${ambiente},\${carpeta},ERROR,0,0,0,0,0,0" | Out-File -FilePath "\${resultadosFile}" -Append -Encoding UTF8
                                         }
                                     } else {
-                                        Write-Host "📭 Carpeta no disponible para este ambiente"
-                                        # Registrar como "No disponible"
+                                        Write-Host "[INFO] Carpeta no disponible para este ambiente"
                                         "\${ambiente},\${carpeta},NO_DISPONIBLE,0,0,0,0,0,0" | Out-File -FilePath "\${resultadosFile}" -Append -Encoding UTF8
                                     }
                                     
@@ -205,7 +213,7 @@ pipeline {
                                 """)
                                 
                                 if (exitCode != 0) {
-                                    echo "⚠️ Hubo un problema, pero continuamos con la ejecución"
+                                    echo "[WARN] Hubo un problema, pero continuamos con la ejecucion"
                                 }
                             }
                         }
@@ -214,19 +222,19 @@ pipeline {
             }
         }
         
-        stage('Generar Resumen de Ejecución') {
+        stage('Generar Resumen de Ejecucion') {
             steps {
                 powershell """
                     \$executionFolder = "${env.EXECUTION_FOLDER}".Replace('/', '\\')
                     \$summaryFile = "\$executionFolder\\resumen_ejecucion.txt"
                     
                     "=========================================" | Out-File -FilePath \$summaryFile
-                    "RESUMEN DE EJECUCIÓN - ACHDATA" | Out-File -FilePath \$summaryFile -Append
+                    "RESUMEN DE EJECUCION - ACHDATA" | Out-File -FilePath \$summaryFile -Append
                     "=========================================" | Out-File -FilePath \$summaryFile -Append
                     "Fecha: ${env.EXECUTION_DATE}" | Out-File -FilePath \$summaryFile -Append
                     "Hora: ${env.EXECUTION_TIME}" | Out-File -FilePath \$summaryFile -Append
                     "Ambiente: ${params.AMBIENTE}" | Out-File -FilePath \$summaryFile -Append
-                    "Sección: ${params.SECCION}" | Out-File -FilePath \$summaryFile -Append
+                    "Seccion: ${params.SECCION}" | Out-File -FilePath \$summaryFile -Append
                     "=========================================" | Out-File -FilePath \$summaryFile -Append
                     "" | Out-File -FilePath \$summaryFile -Append
                     
@@ -261,21 +269,23 @@ pipeline {
                                 \$assPassed = [int]\$parts[7].Trim()
                                 \$assFailed = [int]\$parts[8].Trim()
                                 
-                                # Determinar emoji según estado
-                                \$emoji = switch (\$estado) {
-                                    "EJECUTADO" { 
-                                        \$ejecutados++
-                                        if (\$reqFailed -eq 0 -and \$assFailed -eq 0) { "✅" } else { "⚠️ " }
+                                # Determinar marcador segun estado
+                                \$marcador = ""
+                                if (\$estado -eq "EJECUTADO") {
+                                    \$ejecutados++
+                                    if (\$reqFailed -eq 0 -and \$assFailed -eq 0) {
+                                        \$marcador = "[OK]"
+                                    } else {
+                                        \$marcador = "[WARN]"
                                     }
-                                    "NO_DISPONIBLE" { 
-                                        \$noDisponibles++
-                                        "📭"
-                                    }
-                                    "ERROR" { 
-                                        \$errores++
-                                        "❌"
-                                    }
-                                    default { "❓" }
+                                } elseif (\$estado -eq "NO_DISPONIBLE") {
+                                    \$noDisponibles++
+                                    \$marcador = "[N/A]"
+                                } elseif (\$estado -eq "ERROR") {
+                                    \$errores++
+                                    \$marcador = "[ERROR]"
+                                } else {
+                                    \$marcador = "[?]"
                                 }
                                 
                                 if (\$estado -eq "EJECUTADO") {
@@ -286,11 +296,11 @@ pipeline {
                                     \$totalPassedAssertions += \$assPassed
                                     \$totalFailedAssertions += \$assFailed
                                     
-                                    \$formattedLine = "\$emoji \$amb - \$carp"
+                                    \$formattedLine = "\$marcador \$amb - \$carp"
                                     \$formattedLine | Out-File -FilePath \$summaryFile -Append
-                                    "   Requests: \$reqTotal (✓\$reqPassed / ✗\$reqFailed) | Assertions: \$assTotal (✓\$assPassed / ✗\$assFailed)" | Out-File -FilePath \$summaryFile -Append
+                                    "   Requests: \$reqTotal (OK:\$reqPassed / FAIL:\$reqFailed) | Assertions: \$assTotal (OK:\$assPassed / FAIL:\$assFailed)" | Out-File -FilePath \$summaryFile -Append
                                 } else {
-                                    "\$emoji \$amb - \$carp [\$estado]" | Out-File -FilePath \$summaryFile -Append
+                                    "\$marcador \$amb - \$carp [\$estado]" | Out-File -FilePath \$summaryFile -Append
                                 }
                                 "" | Out-File -FilePath \$summaryFile -Append
                             }
@@ -309,10 +319,10 @@ pipeline {
                         
                         if (\$totalRequests -gt 0) {
                             \$successRate = [math]::Round((\$totalPassedRequests / \$totalRequests) * 100, 2)
-                            "Tasa de éxito: \$successRate%" | Out-File -FilePath \$summaryFile -Append
+                            "Tasa de exito: \$successRate%" | Out-File -FilePath \$summaryFile -Append
                         }
                     } else {
-                        "No se encontró el archivo de resultados" | Out-File -FilePath \$summaryFile -Append
+                        "No se encontro el archivo de resultados" | Out-File -FilePath \$summaryFile -Append
                     }
                     
                     \$htmlReports = Get-ChildItem "\$executionFolder" -Filter "*.html"
@@ -321,7 +331,7 @@ pipeline {
                     "Total de reportes HTML generados: \$(\$htmlReports.Count)" | Out-File -FilePath \$summaryFile -Append
                     
                     Write-Host ""
-                    Write-Host "=== RESUMEN DE EJECUCIÓN ==="
+                    Write-Host "=== RESUMEN DE EJECUCION ==="
                     Get-Content \$summaryFile
                 """
             }
@@ -350,26 +360,26 @@ pipeline {
                     try {
                         summaryContent = readFile("${env.EXECUTION_FOLDER}/resumen_ejecucion.txt")
                     } catch (Exception e) {
-                        summaryContent = "No se pudo leer el resumen de ejecución: ${e.message}"
+                        summaryContent = "No se pudo leer el resumen de ejecucion: ${e.message}"
                     }
                     
                     def emailBody = """
                     <html>
                     <body style="font-family: Arial, sans-serif;">
-                        <h2>📊 Reporte de Ejecución Postman - ACHDATA</h2>
-                        <p><strong>Fecha de ejecución:</strong> ${env.EXECUTION_DATE} a las ${env.EXECUTION_TIME}</p>
+                        <h2>Reporte de Ejecucion Postman - ACHDATA</h2>
+                        <p><strong>Fecha de ejecucion:</strong> ${env.EXECUTION_DATE} a las ${env.EXECUTION_TIME}</p>
                         <p><strong>Ambiente:</strong> ${params.AMBIENTE}</p>
-                        <p><strong>Sección:</strong> ${params.SECCION}</p>
+                        <p><strong>Seccion:</strong> ${params.SECCION}</p>
                         
                         <h3>Resumen de Resultados:</h3>
                         <pre style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; font-size: 12px; overflow-x: auto;">
 ${summaryContent}
                         </pre>
                         
-                        <p><strong>📎 Reportes adjuntos:</strong> ${htmlFiles != 'NO_FILES' && htmlFiles != 'NO_FOLDER' ? htmlFiles.split(',').size() : 0} archivos HTML</p>
+                        <p><strong>Reportes adjuntos:</strong> ${htmlFiles != 'NO_FILES' && htmlFiles != 'NO_FOLDER' ? htmlFiles.split(',').size() : 0} archivos HTML</p>
                         
                         <hr>
-                        <p style="font-size: 11px; color: #666;"><em>Este correo fue generado automáticamente por Jenkins.</em></p>
+                        <p style="font-size: 11px; color: #666;"><em>Este correo fue generado automaticamente por Jenkins.</em></p>
                     </body>
                     </html>
                     """
@@ -379,16 +389,16 @@ ${summaryContent}
                     try {
                         emailext(
                             to: 'yeinerballesta@cbit-online.com',
-                            subject: "📊 Reporte Postman ACHDATA - ${params.AMBIENTE} - ${params.SECCION} - ${env.EXECUTION_DATE}",
+                            subject: "Reporte Postman ACHDATA - ${params.AMBIENTE} - ${params.SECCION} - ${env.EXECUTION_DATE}",
                             body: emailBody,
                             mimeType: 'text/html',
                             attachmentsPattern: "${env.EXECUTION_FOLDER}/**/*.html",
                             from: 'jenkins@cbit-online.com'
                         )
-                        echo "✅ Correo enviado exitosamente"
+                        echo "[OK] Correo enviado exitosamente"
                     } catch (Exception e) {
-                        echo "❌ No se pudo enviar el correo: ${e.message}"
-                        echo "Verifica la configuración de Email Extension Plugin en Jenkins"
+                        echo "[ERROR] No se pudo enviar el correo: ${e.message}"
+                        echo "Verifica la configuracion de Email Extension Plugin en Jenkins"
                     }
                 }
             }
@@ -398,22 +408,22 @@ ${summaryContent}
     post {
         always {
             script {
-                echo "Proceso de ejecución completado"
+                echo "Proceso de ejecucion completado"
                 echo "Reportes guardados en: ${env.EXECUTION_FOLDER}"
                 
                 try {
                     archiveArtifacts artifacts: "${env.EXECUTION_FOLDER}/**/*", allowEmptyArchive: true
-                    echo "✅ Artefactos archivados correctamente"
+                    echo "[OK] Artefactos archivados correctamente"
                 } catch (Exception e) {
-                    echo "⚠️  No se pudieron archivar los artefactos: ${e.message}"
+                    echo "[WARN] No se pudieron archivar los artefactos: ${e.message}"
                 }
             }
         }
         success {
-            echo '✅ Pipeline completado exitosamente'
+            echo '[OK] Pipeline completado exitosamente'
         }
         failure {
-            echo '❌ El pipeline falló'
+            echo '[ERROR] El pipeline fallo'
         }
     }
 }
