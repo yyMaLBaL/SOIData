@@ -2,31 +2,41 @@ pipeline {
     agent any
 
     stages {
-
         stage('Checkout') {
             steps {
-                git url: 'https://github.com/yyMaLBaL/SOIData.git',
-                    branch: 'main'
+                checkout scm
+            }
+        }
+
+        stage('Validar Newman') {
+            steps {
+                powershell '''
+                    Write-Host "Verificando version de Node..."
+                    node -v
+
+                    Write-Host "Verificando version de Newman..."
+                    newman -v
+                '''
             }
         }
 
         stage('Run Postman Tests') {
             steps {
-                sh '''
-                newman run postman/collections/Cars_API.postman_collection.json \
-                -e postman/environments/qa.postman_environment.json \
-                --reporters cli
+                powershell '''
+                    newman run postman/collections/Cars_API.postman_collection.json `
+                        -e postman/environments/qa.postman_environment.json `
+                        --reporters cli
                 '''
             }
         }
     }
 
     post {
-        success {
-            echo 'Pruebas Postman ejecutadas correctamente'
-        }
         failure {
             echo 'Fallaron las pruebas Postman'
+        }
+        success {
+            echo 'Ejecucion completada correctamente'
         }
     }
 }
