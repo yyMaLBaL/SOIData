@@ -37,9 +37,10 @@ pipeline {
                         Write-Output "${date}_${time}"
                     ''').trim()
                     
+                    // Usar / para Groovy (se convertirá automáticamente en Windows)
                     def executionFolder = "Ejecuciones/ACHDATA/Fecha_${dateTimeOutput.replace('_', '_Hora_')}"
                     
-                    // Crear la carpeta directamente
+                    // Crear la carpeta - PowerShell acepta tanto / como \
                     powershell """
                         Write-Host "Creando carpeta de ejecución: ${executionFolder}"
                         New-Item -ItemType Directory -Force -Path "${executionFolder}"
@@ -68,44 +69,62 @@ pipeline {
                         stage("Ejecutar ${folder}") {
                             powershell """
                                 \$folderName = "${folder}"
-                                \$executionFolder = "${env.EXECUTION_FOLDER}"
+                                \$executionFolder = "${env.EXECUTION_FOLDER}".Replace('/', '\\')
                                 \$reportFile = "\$executionFolder\\report_\${folderName}.html"
                                 \$jsonReport = "\$executionFolder\\report_\${folderName}.json"
+                                \$resultadosFile = "\$executionFolder\\resultados.csv"
                                 
                                 Write-Host "========================================="
                                 Write-Host "Ejecutando colección para carpeta: \${folderName}"
+                                Write-Host "Carpeta de ejecución: \${executionFolder}"
                                 Write-Host "========================================="
                                 
                                 # Ejecutar Newman con reporte HTML y JSON
-                                newman run "Collection/ACHDATA - YY.postman_collection.json" `
-                                    -e "Environment/ACHData QA.postman_environment.json" `
-                                    --folder "\${folderName}" `
-                                    --insecure `
-                                    --reporters cli,html,json `
-                                    --reporter-html-export "\${reportFile}" `
-                                    --reporter-json-export "\${jsonReport}" `
-                                    --iteration-data "File/Incluir_Excluir Personas.csv" `
-                                    --iteration-data "File/50 Registros.csv" `
-                                    --iteration-data "File/cargue_masivo_usuarios.csv"
+                                \$newmanExitCode = 0
+                                try {
+                                    newman run "Collection/ACHDATA - YY.postman_collection.json" `
+                                        -e "Environment/ACHData QA.postman_environment.json" `
+                                        --folder "\${folderName}" `
+                                        --insecure `
+                                        --reporters cli,html,json `
+                                        --reporter-html-export "\${reportFile}" `
+                                        --reporter-json-export "\${jsonReport}"
+                                    
+                                    \$newmanExitCode = \$LASTEXITCODE
+                                } catch {
+                                    Write-Host "Error ejecutando Newman: \$_"
+                                    \$newmanExitCode = 1
+                                }
                                 
                                 # Verificar si se generó el reporte JSON
                                 if (Test-Path "\${jsonReport}") {
-                                    # Extraer estadísticas del reporte JSON
-                                    \$jsonContent = Get-Content "\${jsonReport}" -Raw | ConvertFrom-Json
-                                    \$total = \$jsonContent.run.stats.iterations.total
-                                    \$failed = \$jsonContent.run.stats.iterations.failed
-                                    \$passed = \$total - \$failed
-                                    
-                                    Write-Host "Resultados para \${folderName}:"
-                                    Write-Host "  Total: \${total}"
-                                    Write-Host "  Exitosos: \${passed}"
-                                    Write-Host "  Fallidos: \${failed}"
-                                    
-                                    # Guardar resultados en archivo
-                                    "\${folderName},\${total},\${passed},\${failed}" | Out-File -FilePath "\$executionFolder\resultados.csv" -Append -Encoding UTF8
+                                    try {
+                                        # Extraer estadísticas del reporte JSON
+                                        \$jsonContent = Get-Content "\${jsonReport}" -Raw | ConvertFrom-Json
+                                        \$total = \$jsonContent.run.stats.iterations.total
+                                        \$failed = \$jsonContent.run.stats.iterations.failed
+                                        \$passed = \$total - \$failed
+                                        
+                                        Write-Host "Resultados para \${folderName}:"
+                                        Write-Host "  Total: \${total}"
+                                        Write-Host "  Exitosos: \${passed}"
+                                        Write-Host "  Fallidos: \${failed}"
+                                        
+                                        # Guardar resultados en archivo
+                                        "\${folderName},\${total},\${passed},\${failed}" | Out-File -FilePath "\${resultadosFile}" -Append -Encoding UTF8
+                                    } catch {
+                                        Write-Host "Error procesando JSON: \$_"
+                                        "\${folderName},0,0,0" | Out-File -FilePath "\${resultadosFile}" -Append -Encoding UTF8
+                                    }
                                 } else {
                                     Write-Host "ADVERTENCIA: No se generó reporte JSON para \${folderName}"
-                                    "\${folderName},0,0,0" | Out-File -FilePath "\$executionFolder\resultados.csv" -Append -Encoding UTF8
+                                    "\${folderName},0,0,0" | Out-File -FilePath "\${resultadosFile}" -Append -Encoding UTF8
+                                }
+                                
+                                # Salir con el código de Newman
+                                if (\$newmanExitCode -ne 0) {
+                                    Write-Host "Newman finalizó con errores (código: \${newmanExitCode})"
+                                    exit \$newmanExitCode
                                 }
                             """
                         }
@@ -117,23 +136,25 @@ pipeline {
         stage('Generar Resumen de Ejecución') {
             steps {
                 powershell """
-                    \$executionFolder = "${env.EXECUTION_FOLDER}"
+                    \$executionFolder = "${env.EXECUTION_FOLDER}".Replace('/', '\\')
                     
                     # Crear archivo de resumen
                     \$summaryFile = "\$executionFolder\\resumen_ejecucion.txt"
                     
-                    Write-Host "Generando resumen de ejecución..." | Out-File -FilePath \$summaryFile
-                    Write-Host "=========================================" | Out-File -FilePath \$summaryFile -Append
-                    Write-Host "Ejecución: ACHDATA" | Out-File -FilePath \$summaryFile -Append
-                    Write-Host "Fecha: ${env.EXECUTION_DATE}" | Out-File -FilePath \$summaryFile -Append
-                    Write-Host "Hora: ${env.EXECUTION_TIME}" | Out-File -FilePath \$summaryFile -Append
-                    Write-Host "=========================================" | Out-File -FilePath \$summaryFile -Append
-                    Write-Host "" | Out-File -FilePath \$summaryFile -Append
-                    Write-Host "RESULTADOS POR CARPETA:" | Out-File -FilePath \$summaryFile -Append
-                    Write-Host "-----------------------" | Out-File -FilePath \$summaryFile -Append
+                    "Generando resumen de ejecución..." | Out-File -FilePath \$summaryFile
+                    "=========================================" | Out-File -FilePath \$summaryFile -Append
+                    "Ejecución: ACHDATA" | Out-File -FilePath \$summaryFile -Append
+                    "Fecha: ${env.EXECUTION_DATE}" | Out-File -FilePath \$summaryFile -Append
+                    "Hora: ${env.EXECUTION_TIME}" | Out-File -FilePath \$summaryFile -Append
+                    "=========================================" | Out-File -FilePath \$summaryFile -Append
+                    "" | Out-File -FilePath \$summaryFile -Append
+                    "RESULTADOS POR CARPETA:" | Out-File -FilePath \$summaryFile -Append
+                    "-----------------------" | Out-File -FilePath \$summaryFile -Append
                     
-                    if (Test-Path "\$executionFolder\\resultados.csv") {
-                        \$lines = Get-Content "\$executionFolder\\resultados.csv"
+                    \$resultadosFile = "\$executionFolder\\resultados.csv"
+                    
+                    if (Test-Path "\$resultadosFile") {
+                        \$lines = Get-Content "\$resultadosFile"
                         
                         foreach (\$line in \$lines) {
                             \$parts = \$line.Split(',')
@@ -144,18 +165,18 @@ pipeline {
                                 \$failed = \$parts[3].Trim()
                                 
                                 \$formattedLine = "ACHDATA - \$folder | Total: \$total | Exitosos: \$passed | Fallidos: \$failed"
-                                Write-Host \$formattedLine | Out-File -FilePath \$summaryFile -Append
+                                \$formattedLine | Out-File -FilePath \$summaryFile -Append
                             }
                         }
                     } else {
-                        Write-Host "No se encontró el archivo de resultados" | Out-File -FilePath \$summaryFile -Append
+                        "No se encontró el archivo de resultados" | Out-File -FilePath \$summaryFile -Append
                     }
                     
                     # Contar archivos HTML generados
                     \$htmlReports = Get-ChildItem "\$executionFolder" -Filter "*.html"
-                    Write-Host "" | Out-File -FilePath \$summaryFile -Append
-                    Write-Host "=========================================" | Out-File -FilePath \$summaryFile -Append
-                    Write-Host "Total de reportes HTML generados: \$(\$htmlReports.Count)" | Out-File -FilePath \$summaryFile -Append
+                    "" | Out-File -FilePath \$summaryFile -Append
+                    "=========================================" | Out-File -FilePath \$summaryFile -Append
+                    "Total de reportes HTML generados: \$(\$htmlReports.Count)" | Out-File -FilePath \$summaryFile -Append
                     
                     # Mostrar resumen en consola
                     Write-Host ""
@@ -170,11 +191,11 @@ pipeline {
                 script {
                     // Primero verificar que existan reportes
                     def htmlFiles = powershell(returnStdout: true, script: """
-                        \$executionFolder = "${env.EXECUTION_FOLDER}"
+                        \$executionFolder = "${env.EXECUTION_FOLDER}".Replace('/', '\\')
                         if (Test-Path "\$executionFolder") {
                             \$files = Get-ChildItem "\$executionFolder" -Filter "*.html" | Select-Object -ExpandProperty Name
                             if (\$files) {
-                                Write-Output "\$files"
+                                Write-Output (\$files -join ",")
                             } else {
                                 Write-Output "NO_FILES"
                             }
@@ -190,7 +211,7 @@ pipeline {
                     try {
                         summaryContent = readFile("${env.EXECUTION_FOLDER}/resumen_ejecucion.txt")
                     } catch (Exception e) {
-                        summaryContent = "No se pudo leer el resumen de ejecución"
+                        summaryContent = "No se pudo leer el resumen de ejecución: ${e.message}"
                     }
                     
                     // Preparar cuerpo del correo
@@ -202,10 +223,10 @@ pipeline {
                         
                         <h3>Resumen de Resultados:</h3>
                         <pre style="background-color: #f5f5f5; padding: 15px; border-radius: 5px;">
-                    ${summaryContent}
+${summaryContent}
                         </pre>
                         
-                        <p><strong>📎 Reportes adjuntos:</strong> ${htmlFiles.split('\\r\\n').size()} archivos HTML</p>
+                        <p><strong>📎 Reportes adjuntos:</strong> ${htmlFiles != 'NO_FILES' && htmlFiles != 'NO_FOLDER' ? htmlFiles.split(',').size() : 0} archivos HTML</p>
                         
                         <hr>
                         <p><em>Este correo fue generado automáticamente por Jenkins.</em></p>
@@ -229,7 +250,7 @@ pipeline {
                         echo "Correo enviado exitosamente"
                     } catch (Exception e) {
                         echo "No se pudo enviar el correo: ${e.message}"
-                        echo "Cuerpo del correo preparado pero no enviado"
+                        echo "Verifica la configuración de Email Extension Plugin en Jenkins"
                     }
                 }
             }
