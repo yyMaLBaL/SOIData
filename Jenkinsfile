@@ -28,34 +28,34 @@ pipeline {
         }
         
         stage('Configurar Ejecución') {
-            steps {
-                script {
-                    // Obtener fecha y hora usando PowerShell
-                    def dateTimeOutput = powershell(returnStdout: true, script: '''
-                        $date = Get-Date -Format "yyyy-MM-dd"
-                        $time = Get-Date -Format "HH-mm-ss"
-                        Write-Output "${date}_${time}"
-                    ''').trim()
-                    
-                    def executionFolder = "Ejecuciones\ACHDATA\Fecha_${dateTimeOutput.replace('_', '_Hora_')}"
-                    
-                    // Crear la carpeta directamente
-                    powershell """
-                        Write-Host "Creando carpeta de ejecución: ${executionFolder}"
-                        New-Item -ItemType Directory -Force -Path "${executionFolder}"
-                    """
-                    
-                    // Guardar en variables para usar después
-                    env.EXECUTION_FOLDER = executionFolder
-                    env.EXECUTION_DATE = dateTimeOutput.split('_')[0]
-                    env.EXECUTION_TIME = dateTimeOutput.split('_')[1]
-                    
-                    echo "Fecha: ${env.EXECUTION_DATE}"
-                    echo "Hora: ${env.EXECUTION_TIME}"
-                    echo "Carpeta: ${env.EXECUTION_FOLDER}"
-                }
-            }
+    steps {
+        script {
+            // Obtener fecha y hora usando PowerShell
+            def dateTimeOutput = powershell(returnStdout: true, script: '''
+                $date = Get-Date -Format "yyyy-MM-dd"
+                $time = Get-Date -Format "HH-mm-ss"
+                Write-Output "${date}_${time}"
+            ''').trim()
+            
+            def executionFolder = "Ejecuciones/ACHDATA/Fecha_${dateTimeOutput.replace('_', '_Hora_')}"
+            
+            // Crear la carpeta directamente
+            powershell """
+                Write-Host "Creando carpeta de ejecución: ${executionFolder}"
+                New-Item -ItemType Directory -Force -Path "${executionFolder}"
+            """
+            
+            // Guardar en variables para usar después
+            env.EXECUTION_FOLDER = executionFolder
+            env.EXECUTION_DATE = dateTimeOutput.split('_')[0]
+            env.EXECUTION_TIME = dateTimeOutput.split('_')[1]
+            
+            echo "Fecha: ${env.EXECUTION_DATE}"
+            echo "Hora: ${env.EXECUTION_TIME}"
+            echo "Carpeta: ${env.EXECUTION_FOLDER}"
         }
+    }
+}
         
         stage('Ejecutar Colección Postman') {
             steps {
