@@ -16,17 +16,6 @@ pipeline {
             }
         }
         
-        stage('Validar Newman') {
-            steps {
-                powershell '''
-                    Write-Host "Verificando version de Node..."
-                    node -v
-                    Write-Host "Verificando version de Newman..."
-                    newman -v
-                '''
-            }
-        }
-        
         stage('Configurar Ejecución') {
             steps {
                 script {
@@ -41,14 +30,13 @@ pipeline {
                     env.EXECUTION_TIME = dateTimeOutput.split('_')[1]
                     
                     powershell """
-                        Write-Host "Creando carpeta: ${env.EXECUTION_FOLDER}"
                         New-Item -ItemType Directory -Force -Path "${env.EXECUTION_FOLDER}"
                     """
                 }
             }
         }
         
-        stage('Ejecutar Pruebas') {
+        stage('Ejecutar Pruebas SIN CSV') {
             steps {
                 script {
                     def folders = params.COLLECTION_FOLDER == 'ALL' ? 
@@ -68,39 +56,17 @@ pipeline {
                                     --folder "\${folderName}" `
                                     --insecure `
                                     --reporters cli,html `
-                                    --reporter-html-export "\${reportFile}" `
-                                    --iteration-data "File/Incluir_Excluir Personas.csv" `
-                                    --iteration-data "File/50 Registros.csv" `
-                                    --iteration-data "File/cargue_masivo_usuarios.csv"
+                                    --reporter-html-export "\$reportFile"
                             """
                         }
                     }
                 }
             }
         }
-        
-        stage('Mostrar Resultados') {
-            steps {
-                powershell """
-                    Write-Host "=== EJECUCIÓN COMPLETADA ==="
-                    Write-Host "Fecha: ${env.EXECUTION_DATE}"
-                    Write-Host "Hora: ${env.EXECUTION_TIME}"
-                    Write-Host "Carpeta: ${env.EXECUTION_FOLDER}"
-                    
-                    \$htmlFiles = Get-ChildItem "${env.EXECUTION_FOLDER}" -Filter "*.html"
-                    Write-Host "Reportes generados: \$(\$htmlFiles.Count)"
-                    
-                    foreach (\$file in \$htmlFiles) {
-                        Write-Host "  - \$(\$file.Name)"
-                    }
-                """
-            }
-        }
     }
     
     post {
         always {
-            echo "Proceso finalizado"
             archiveArtifacts artifacts: "${env.EXECUTION_FOLDER}/**/*", allowEmptyArchive: true
         }
     }
