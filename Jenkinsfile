@@ -2,8 +2,8 @@ pipeline {
     agent any
 
     environment {
-        COLLECTION   = "Collection\\ACHDATA - YY.postman_collection.json"
-        ENVIRONMENT  = "Environment\\ACHData QA.postman_environment.json"
+        COLLECTION   = "Collection\ACHDATA - YY.postman_collection.json"
+        ENVIRONMENT  = "Environment\ACHData QA.postman_environment.json"
         REPORTS      = "reports"
         FECHA        = new Date().format("yyyy-MM-dd")
         HORA         = new Date().format("HHmmss")
@@ -63,8 +63,8 @@ pipeline {
                           --delay-request 1000 `
                           --timeout-request 30000 `
                           --reporters "cli,htmlextra,junit" `
-                          --reporter-htmlextra-export "${REPORTS}\\ACHDATA_${folder}_${TS}.html" `
-                          --reporter-junit-export "${REPORTS}\\ACHDATA_${folder}_${TS}.xml" `
+                          --reporter-htmlextra-export "${REPORTS}\ACHDATA_${folder}_${TS}.html" `
+                          --reporter-junit-export "${REPORTS}\ACHDATA_${folder}_${TS}.xml" `
                           --reporter-htmlextra-title "ACHDATA ${folder} - ${FECHA} ${HORA}" `
                           --insecure `
                           --verbose
