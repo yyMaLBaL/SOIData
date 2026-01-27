@@ -32,13 +32,12 @@ pipeline {
                     $hora = Get-Date -Format "HH-mm"
                     $timestamp = Get-Date -Format "yyyyMMdd_HHmm"
                     
-                    # Formato: Fecha_2026-01-26_Hora_16-37
                     $baseReportPath = "Ejecuciones\\ACHDATA\\Fecha_" + $fecha + "_Hora_" + $hora
                     
                     New-Item -ItemType Directory -Force -Path $baseReportPath | Out-Null
                     Write-Host "Directorio creado: $baseReportPath" -ForegroundColor Green
                     
-                    # Guardar variables para otros stages
+                    # Guardar variables
                     $fecha | Out-File -FilePath "env_fecha.txt" -NoNewline -Encoding UTF8
                     $hora | Out-File -FilePath "env_hora.txt" -NoNewline -Encoding UTF8
                     $timestamp | Out-File -FilePath "env_timestamp.txt" -NoNewline -Encoding UTF8
@@ -47,7 +46,7 @@ pipeline {
             }
         }
         
-        stage('Ejecutar Pruebas por Carpeta') {
+        stage('Ejecutar Pruebas por Ambiente') {
             steps {
                 powershell '''
                     # Cargar variables
@@ -56,26 +55,115 @@ pipeline {
                     $timestamp = Get-Content "env_timestamp.txt" -Encoding UTF8
                     $baseReportPath = Get-Content "env_reportpath.txt" -Encoding UTF8
                     
-                    # Definir carpetas a ejecutar
-                    $carpetas = @("AT", "SS", "CS", "CER", "CERCS")
+                    # Definir todos los ambientes a ejecutar
+                    # Estructura: Ambiente / Carpetas que incluye
+                    $ambientes = @(
+                        @{
+                            Nombre = "AT"
+                            Carpetas = @(
+                                "Autenticacion/AT - Autenticacion",
+                                "Doble Factor de Autenticacion/AT - Doble Factor de Autenticacion",
+                                "Uso de Datos/AT - Uso de Datos",
+                                "Consultas/Detallada Natural Y Juridica/AT - Detallada Natural Y Juridica",
+                                "Servicios ACH/AT - Servicios ACH",
+                                "SDH/AT - SDH",
+                                "Administracion/AT - Administracion",
+                                "Monitoreo/AT - Monitoreo",
+                                "Estadisticas/AT - Estadisticas",
+                                "Auditoria/AT - Auditoria",
+                                "ADMINISTRADOR ENTIDAD/AT - ADMINISTRADOR ENTIDAD"
+                            )
+                        },
+                        @{
+                            Nombre = "SS"
+                            Carpetas = @(
+                                "Autenticacion/SS - Autenticacion",
+                                "Doble Factor de Autenticacion/SS - Doble Factor de Autenticacion",
+                                "Uso de Datos/SS - Uso de Datos",
+                                "Consultas/Detallada Natural Y Juridica/SS - Detallada Natural Y Juridica",
+                                "Servicios ACH/SS - Servicios ACH",
+                                "SDH/SS - SDH",
+                                "Administracion/SS - Administracion",
+                                "Monitoreo/SS - Monitoreo",
+                                "Estadisticas/SS - Estadisticas",
+                                "Auditoria/SS - Auditoria",
+                                "ADMINISTRADOR ENTIDAD/SS - ADMINISTRADOR ENTIDAD"
+                            )
+                        },
+                        @{
+                            Nombre = "CS"
+                            Carpetas = @(
+                                "Autenticacion/CS - Autenticacion - API Consumo",
+                                "Doble Factor de Autenticacion/CS - Doble Factor de Autenticacion - API Consumo",
+                                "Uso de Datos/CS - Uso de Datos",
+                                "Consultas/Detallada Natural Y Juridica/CS - Detallada Natural Y Juridica",
+                                "Servicios ACH/CS - Servicios ACH - API Consumo",
+                                "SDH/CS - SDH - API Consumo",
+                                "Administracion/CS - Administracion - API Consumo",
+                                "Monitoreo/CS - Monitoreo - API Consumo",
+                                "Estadisticas/CS - Estadisticas - API Consumo",
+                                "Auditoria/CS - Auditoria - API Consumo",
+                                "ADMINISTRADOR ENTIDAD/CS - ADMINISTRADOR ENTIDAD - API Consumo"
+                            )
+                        },
+                        @{
+                            Nombre = "CER"
+                            Carpetas = @(
+                                "Autenticacion/CER - Autenticacion - API Security",
+                                "Doble Factor de Autenticacion/CER - Doble Factor de Autenticacion - API Security",
+                                "Uso de Datos/CER - Uso de Datos",
+                                "Consultas/Detallada Natural Y Juridica/CER - Detallada Natural Y Juridica",
+                                "Servicios ACH/CER - Servicios ACH - API Security",
+                                "SDH/CER - SDH - API Security",
+                                "Administracion/CER - Administracion - API Security",
+                                "Monitoreo/CER - Monitoreo - API Security",
+                                "Estadisticas/CER - Estadisticas - API Security",
+                                "Auditoria/CER - Auditoria - API Security",
+                                "ADMINISTRADOR ENTIDAD/CER - ADMINISTRADOR ENTIDAD - API Security"
+                            )
+                        },
+                        @{
+                            Nombre = "CERCS"
+                            Carpetas = @(
+                                "Autenticacion/CERCS - Autenticacion - API Security / API Consumo",
+                                "Doble Factor de Autenticacion/CERCS - Doble Factor de Autenticacion - API Security / API Consumo",
+                                "Uso de Datos/CERCS - Uso de Datos",
+                                "Consultas/Detallada Natural Y Juridica/CERCS - Detallada Natural Y Juridica",
+                                "Servicios ACH/CERCS - Servicios ACH - API Security / API Consumo",
+                                "SDH/CERCS - SDH - API Security / API Consumo",
+                                "Administracion/CERCS - Administracion - API Security / API Consumo",
+                                "Monitoreo/CERCS - Monitoreo - API Security / API Consumo",
+                                "Estadisticas/CERCS - Estadisticas - API Security / API Consumo",
+                                "Auditoria/CERCS - Auditoria - API Security / API Consumo",
+                                "ADMINISTRADOR ENTIDAD/CERCS - ADMINISTRADOR ENTIDAD - API Security / API Consumo"
+                            )
+                        }
+                    )
                     
                     # Array para almacenar resultados
                     $resultados = @()
                     
-                    foreach ($carpeta in $carpetas) {
+                    foreach ($ambiente in $ambientes) {
+                        $nombreAmbiente = $ambiente.Nombre
+                        
                         Write-Host ""
                         Write-Host "========================================" -ForegroundColor Cyan
-                        Write-Host "Ejecutando carpeta: $carpeta" -ForegroundColor Cyan
+                        Write-Host "EJECUTANDO AMBIENTE: $nombreAmbiente" -ForegroundColor Cyan
                         Write-Host "========================================" -ForegroundColor Cyan
                         Write-Host ""
                         
-                        $reportHTML = "$baseReportPath\\ACHData_" + $carpeta + "_Report_" + $timestamp + ".html"
-                        $reportXML = "$baseReportPath\\ACHData_" + $carpeta + "_Report_" + $timestamp + ".xml"
+                        $reportHTML = "$baseReportPath\\ACHData_" + $nombreAmbiente + "_Report_" + $timestamp + ".html"
+                        $reportXML = "$baseReportPath\\ACHData_" + $nombreAmbiente + "_Report_" + $timestamp + ".xml"
                         
-                        # Construir comando Newman
+                        # Construir comando Newman con multiples folders
+                        $foldersParam = ""
+                        foreach ($carpeta in $ambiente.Carpetas) {
+                            $foldersParam += "--folder `"$carpeta`" "
+                        }
+                        
                         $newmanCmd = "newman run `"Collection/ACHDATA - YY.postman_collection.json`" " +
                             "-e `"Environment/ACHData QA.postman_environment.json`" " +
-                            "--folder `"$carpeta`" " +
+                            $foldersParam +
                             "--env-var `"fileIncluirExcluir=File/Incluir_Excluir Personas.csv`" " +
                             "--env-var `"file50Registros=File/50 Registros.csv`" " +
                             "--env-var `"fileCargueMasivo=File/cargue_masivo_usuarios.csv`" " +
@@ -84,10 +172,12 @@ pipeline {
                             "--reporters `"cli,htmlextra,junit`" " +
                             "--reporter-htmlextra-export `"$reportHTML`" " +
                             "--reporter-junit-export `"$reportXML`" " +
-                            "--reporter-htmlextra-title `"ACHData $carpeta - $fecha $hora`" " +
+                            "--reporter-htmlextra-title `"ACHData $nombreAmbiente - $fecha $hora`" " +
                             "--reporter-htmlextra-showOnlyFails false " +
                             "--reporter-htmlextra-darkTheme " +
                             "--insecure"
+                        
+                        Write-Host "Ejecutando $($ambiente.Carpetas.Count) carpetas del ambiente $nombreAmbiente..." -ForegroundColor Yellow
                         
                         # Ejecutar Newman
                         Invoke-Expression $newmanCmd
@@ -112,8 +202,8 @@ pipeline {
                                     $fallidos = 0
                                 }
                                 
-                                $resultados += @{
-                                    Carpeta = $carpeta
+                                $resultados += [PSCustomObject]@{
+                                    Carpeta = $nombreAmbiente
                                     Total = $total
                                     Exitosos = $exitosos
                                     Fallidos = $fallidos
@@ -122,7 +212,7 @@ pipeline {
                                 }
                                 
                                 Write-Host ""
-                                Write-Host "--- Resumen $carpeta ---" -ForegroundColor Yellow
+                                Write-Host "--- Resumen $nombreAmbiente ---" -ForegroundColor Yellow
                                 Write-Host "Total: $total | Exitosos: $exitosos | Fallidos: $fallidos" -ForegroundColor Yellow
                                 
                                 if ($exitosos -eq $total -and $total -gt 0) {
@@ -131,9 +221,9 @@ pipeline {
                                     Write-Host "Hay pruebas fallidas" -ForegroundColor Red
                                 }
                             } catch {
-                                Write-Host "Advertencia: No se pudo parsear XML para $carpeta - $_" -ForegroundColor Yellow
-                                $resultados += @{
-                                    Carpeta = $carpeta
+                                Write-Host "Advertencia: No se pudo parsear XML para $nombreAmbiente - $_" -ForegroundColor Yellow
+                                $resultados += [PSCustomObject]@{
+                                    Carpeta = $nombreAmbiente
                                     Total = 0
                                     Exitosos = 0
                                     Fallidos = 0
@@ -142,9 +232,9 @@ pipeline {
                                 }
                             }
                         } else {
-                            Write-Host "Advertencia: No se genero reporte XML para $carpeta" -ForegroundColor Yellow
-                            $resultados += @{
-                                Carpeta = $carpeta
+                            Write-Host "Advertencia: No se genero reporte XML para $nombreAmbiente" -ForegroundColor Yellow
+                            $resultados += [PSCustomObject]@{
+                                Carpeta = $nombreAmbiente
                                 Total = 0
                                 Exitosos = 0
                                 Fallidos = 0
@@ -153,7 +243,9 @@ pipeline {
                             }
                         }
                         
-                        Start-Sleep -Seconds 2
+                        Write-Host ""
+                        Write-Host "Esperando 3 segundos antes del siguiente ambiente..." -ForegroundColor Gray
+                        Start-Sleep -Seconds 3
                     }
                     
                     # Guardar resultados
@@ -165,14 +257,19 @@ pipeline {
                     Write-Host "RESUMEN GLOBAL DE EJECUCION" -ForegroundColor Green
                     Write-Host "========================================" -ForegroundColor Green
                     
-                    $totalGlobal = ($resultados | Measure-Object -Property Total -Sum).Sum
-                    $exitososGlobal = ($resultados | Measure-Object -Property Exitosos -Sum).Sum
-                    $fallidosGlobal = ($resultados | Measure-Object -Property Fallidos -Sum).Sum
-                    
-                    Write-Host "Total de pruebas: $totalGlobal" -ForegroundColor Cyan
-                    Write-Host "Exitosas: $exitososGlobal" -ForegroundColor Green
-                    Write-Host "Fallidas: $fallidosGlobal" -ForegroundColor Red
-                    Write-Host "Reportes guardados en: $baseReportPath" -ForegroundColor Cyan
+                    if ($resultados.Count -gt 0) {
+                        $totalGlobal = ($resultados | Measure-Object -Property Total -Sum).Sum
+                        $exitososGlobal = ($resultados | Measure-Object -Property Exitosos -Sum).Sum
+                        $fallidosGlobal = ($resultados | Measure-Object -Property Fallidos -Sum).Sum
+                        
+                        Write-Host "Ambientes ejecutados: $($resultados.Count)" -ForegroundColor Cyan
+                        Write-Host "Total de pruebas: $totalGlobal" -ForegroundColor Cyan
+                        Write-Host "Exitosas: $exitososGlobal" -ForegroundColor Green
+                        Write-Host "Fallidas: $fallidosGlobal" -ForegroundColor Red
+                        Write-Host "Reportes guardados en: $baseReportPath" -ForegroundColor Cyan
+                    } else {
+                        Write-Host "No se ejecutaron pruebas" -ForegroundColor Red
+                    }
                 '''
             }
         }
@@ -186,7 +283,17 @@ pipeline {
                     $baseReportPath = Get-Content "env_reportpath.txt" -Encoding UTF8
                     
                     # Cargar resultados
+                    if (-not (Test-Path "resultados.json")) {
+                        Write-Host "No hay resultados para enviar" -ForegroundColor Yellow
+                        exit 0
+                    }
+                    
                     $resultadosJson = Get-Content "resultados.json" -Encoding UTF8 | ConvertFrom-Json
+                    
+                    if ($resultadosJson.Count -eq 0) {
+                        Write-Host "No hay resultados para enviar" -ForegroundColor Yellow
+                        exit 0
+                    }
                     
                     # Calcular totales
                     $totalGlobal = ($resultadosJson | Measure-Object -Property Total -Sum).Sum
@@ -345,7 +452,7 @@ pipeline {
         
         <div class="content">
             <div class="summary-box">
-                <h3>Resumen Global</h3>
+                <h3>Resumen Global - Todos los Ambientes</h3>
                 <div class="stats">
                     <div class="stat-item">
                         <span class="stat-number total">$totalGlobal</span>
@@ -362,11 +469,11 @@ pipeline {
                 </div>
             </div>
             
-            <h3>Detalle por Carpeta</h3>
+            <h3>Detalle por Ambiente</h3>
             <table>
                 <thead>
                     <tr>
-                        <th>Carpeta</th>
+                        <th>Ambiente</th>
                         <th style="text-align: center;">Total Casos</th>
                         <th style="text-align: center;">Exitosos</th>
                         <th style="text-align: center;">Fallidos</th>
@@ -405,7 +512,7 @@ pipeline {
             
             <div class="info-box">
                 <strong>Archivos Adjuntos:</strong>
-                <p>Los reportes detallados en formato HTML estan adjuntos a este correo. Abralos en su navegador para ver el analisis completo de cada ejecucion.</p>
+                <p>Se adjuntan 5 reportes HTML detallados (uno por ambiente: AT, SS, CS, CER, CERCS). Cada reporte contiene todas las carpetas ejecutadas para ese ambiente.</p>
             </div>
             
             <div class="info-box">
@@ -495,7 +602,6 @@ pipeline {
                             Write-Host "Error interno: $($_.Exception.InnerException.Message)" -ForegroundColor Red
                         }
                         
-                        # No lanzar error para no fallar el build
                         Write-Host ""
                         Write-Host "Los reportes estan disponibles en: $baseReportPath" -ForegroundColor Yellow
                         Write-Host "Continuando sin envio de email..." -ForegroundColor Yellow
