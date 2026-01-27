@@ -34,29 +34,40 @@ pipeline {
         }
 
         stage('Ejecutar pruebas') {
-            steps {
-                powershell '''
-                    $fecha = Get-Date -Format "yyyy-MM-dd"
-                    $hora = Get-Date -Format "HH-mm"
+    steps {
+        powershell '''
+            $fecha = Get-Date -Format "yyyy-MM-dd"
+            $hora = Get-Date -Format "HH-mm"
 
-                    $global:REPORT_PATH = "$env:REPORT_BASE/Fecha_$fecha`_Hora_$hora"
+            $global:REPORT_PATH = "Ejecuciones/ACHDATA/Fecha_$fecha`_Hora_$hora"
 
-                    New-Item -ItemType Directory -Force -Path $global:REPORT_PATH | Out-Null
+            New-Item -ItemType Directory -Force -Path $global:REPORT_PATH | Out-Null
 
-                    Write-Host "Ruta de ejecución: $global:REPORT_PATH"
+            $files = @(
+                "File/Incluir_Excluir Personas.csv",
+                "File/50 Registros.csv",
+                "File/cargue_masivo_usuarios.csv"
+            )
 
-                    newman run "$env:COLLECTION" `
-                        -e "$env:ENVIRONMENT" `
-                        --insecure `
-                        --iteration-data "$env:DATA1" `
-                        --iteration-data "$env:DATA2" `
-                        --iteration-data "$env:DATA3" `
-                        --reporters cli,htmlextra,json `
-                        --reporter-htmlextra-export "$global:REPORT_PATH/ReporteGeneral.html" `
-                        --reporter-json-export "$global:REPORT_PATH/resultado.json"
-                '''
+            $i = 1
+
+            foreach ($file in $files) {
+
+                Write-Host "Ejecutando iteración con archivo: $file"
+
+                newman run "Collection/ACHDATA - YY.postman_collection.json" `
+                    -e "Environment/ACHData QA.postman_environment.json" `
+                    --iteration-data "$file" `
+                    --insecure `
+                    --reporters cli,htmlextra,json `
+                    --reporter-htmlextra-export "$global:REPORT_PATH/Reporte_$i.html" `
+                    --reporter-json-export "$global:REPORT_PATH/resultado_$i.json"
+
+                $i++
             }
-        }
+        '''
+    }
+}
 
         stage('Procesar métricas por carpeta') {
             steps {
