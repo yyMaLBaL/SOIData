@@ -65,7 +65,7 @@ pipeline {
                     // Lista de carpetas base (sin prefijo de ambiente)
                     // Ajusta esta lista según tu colección completa
                     def carpetasBase = [
-                        'Autenticacion',
+                        'Autenticación',
                         'Detallada Natural Y Juridica'
                         // Agrega aquí el resto de carpetas que veas en tu colección
                     ]
