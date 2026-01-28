@@ -36,7 +36,8 @@ pipeline {
                         Write-Output "${date}_${time}"
                     ''').trim()
                     
-                    def executionFolder = "Ejecuciones/ACHDATA/Fecha_${dateTimeOutput.replace('_', '_Hora_')}"
+                    // CORRECCIÓN: Cambiar la ruta a Executions\ACHDATA
+                    def executionFolder = "Executions\\ACHDATA\\Fecha_${dateTimeOutput.replace('_', '_Hora_')}"
                     
                     powershell """
                         Write-Host "Creando carpeta de ejecucion: ${executionFolder}"
@@ -79,7 +80,7 @@ pipeline {
                                     \$folderName = "${folderName}"
                                     \$ambiente = "${ambiente}"
                                     \$carpetaBase = "${carpetaBase}"
-                                    \$executionFolder = "${env.EXECUTION_FOLDER}".Replace('/', '\\')
+                                    \$executionFolder = "${env.EXECUTION_FOLDER}"
                                     \$safeFileName = "\${ambiente}_\${carpetaBase}".Replace(' ', '_')
                                     \$reportFile = "\$executionFolder\\report_\${safeFileName}.html"
                                     \$jsonReport = "\$executionFolder\\report_\${safeFileName}.json"
@@ -161,7 +162,7 @@ pipeline {
         stage('Generar Resumen') {
             steps {
                 powershell """
-                    \$executionFolder = "${env.EXECUTION_FOLDER}".Replace('/', '\\')
+                    \$executionFolder = "${env.EXECUTION_FOLDER}"
                     \$summaryFile = "\$executionFolder\\resumen_ejecucion.txt"
                     \$resultadosFile = "\$executionFolder\\resultados.csv"
                     
@@ -259,7 +260,7 @@ pipeline {
             steps {
                 script {
                     def htmlFiles = powershell(returnStdout: true, script: """
-                        \$executionFolder = "${env.EXECUTION_FOLDER}".Replace('/', '\\')
+                        \$executionFolder = "${env.EXECUTION_FOLDER}"
                         if (Test-Path "\$executionFolder") {
                             \$files = Get-ChildItem "\$executionFolder" -Filter "*.html" -ErrorAction SilentlyContinue
                             if (\$files) {
@@ -276,7 +277,7 @@ pipeline {
                     
                     def summaryContent = ""
                     try {
-                        summaryContent = readFile("${env.EXECUTION_FOLDER}/resumen_ejecucion.txt")
+                        summaryContent = readFile("${env.EXECUTION_FOLDER}\\resumen_ejecucion.txt")
                     } catch (Exception e) {
                         summaryContent = "No se pudo leer el resumen: ${e.message}"
                     }
@@ -309,7 +310,7 @@ ${summaryContent}
                             subject: "Reporte Postman ACHDATA - ${params.AMBIENTE} - ${env.EXECUTION_DATE}",
                             body: emailBody,
                             mimeType: 'text/html',
-                            attachmentsPattern: "${env.EXECUTION_FOLDER}/**/*.html",
+                            attachmentsPattern: "${env.EXECUTION_FOLDER}\\**\\*.html",
                             from: 'jenkins@cbit-online.com'
                         )
                         echo "[OK] Correo enviado"
@@ -328,7 +329,7 @@ ${summaryContent}
                 echo "Reportes en: ${env.EXECUTION_FOLDER}"
                 
                 try {
-                    archiveArtifacts artifacts: "${env.EXECUTION_FOLDER}/**/*", allowEmptyArchive: true
+                    archiveArtifacts artifacts: "${env.EXECUTION_FOLDER}\\**\\*", allowEmptyArchive: true
                     echo "[OK] Artefactos archivados"
                 } catch (Exception e) {
                     echo "[WARN] No se archivaron: ${e.message}"
