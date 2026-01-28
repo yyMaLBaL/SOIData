@@ -27,26 +27,20 @@ pipeline {
             }
         }
         
-        stage('Verificar Estructura') {
+        stage('Verificar Archivos') {
             steps {
                 powershell '''
-                    Write-Host "=== VERIFICANDO ESTRUCTURA ==="
+                    Write-Host "=== VERIFICANDO ARCHIVOS ==="
                     Write-Host "Directorio actual: $(Get-Location)"
                     Write-Host ""
                     
                     # Verificar colección
                     $collectionPath = "Collection/ACHDATA - YY.postman_collection.json"
                     if (Test-Path $collectionPath) {
-                        Write-Host "[OK] Colección encontrada"
-                        $collPath = Resolve-Path $collectionPath
-                        Write-Host "Ruta: $collPath"
-                        Write-Host ""
-                        Write-Host "Tamaño del archivo: $((Get-Item $collectionPath).Length) bytes"
+                        Write-Host "[OK] Colección encontrada: $collectionPath"
+                        Write-Host "Tamaño: $((Get-Item $collectionPath).Length) bytes"
                     } else {
-                        Write-Host "[ERROR] Colección NO encontrada en: $collectionPath"
-                        Write-Host ""
-                        Write-Host "Buscando archivos de colección..."
-                        Get-ChildItem -Recurse -Filter "*.json" | Where-Object { $_.Name -match "postman" } | Select-Object Name, FullName | Format-Table
+                        Write-Host "[ERROR] Colección NO encontrada"
                     }
                     
                     Write-Host ""
@@ -54,87 +48,9 @@ pipeline {
                     # Verificar entorno
                     $envPath = "Environment/ACHData QA.postman_environment.json"
                     if (Test-Path $envPath) {
-                        Write-Host "[OK] Entorno encontrado"
-                        $envResolved = Resolve-Path $envPath
-                        Write-Host "Ruta: $envResolved"
+                        Write-Host "[OK] Entorno encontrado: $envPath"
                     } else {
-                        Write-Host "[ERROR] Entorno NO encontrado en: $envPath"
-                        Write-Host ""
-                        Write-Host "Buscando archivos de entorno..."
-                        Get-ChildItem -Recurse -Filter "*environment*.json" | Select-Object Name, FullName | Format-Table
-                    }
-                '''
-            }
-        }
-        
-        stage('Listar Contenido Coleccion') {
-            steps {
-                powershell '''
-                    Write-Host "=== ANALIZANDO ESTRUCTURA DE LA COLECCIÓN ==="
-                    
-                    $collectionPath = "Collection/ACHDATA - YY.postman_collection.json"
-                    
-                    if (Test-Path $collectionPath) {
-                        # Mostrar las primeras líneas del archivo para ver su estructura
-                        Write-Host "Primeras 10 líneas del archivo:"
-                        Write-Host "--------------------------------"
-                        Get-Content $collectionPath -First 10
-                        
-                        Write-Host ""
-                        Write-Host "Últimas 5 líneas del archivo:"
-                        Write-Host "--------------------------------"
-                        Get-Content $collectionPath -Last 5
-                        
-                        Write-Host ""
-                        Write-Host "=== INTENTANDO LEER COMO JSON ==="
-                        
-                        try {
-                            # Intentar leer el JSON
-                            $jsonContent = Get-Content $collectionPath -Raw | ConvertFrom-Json
-                            
-                            Write-Host "[OK] JSON parseado correctamente"
-                            Write-Host "Nombre de la colección: $($jsonContent.info.name)"
-                            Write-Host ""
-                            
-                            # Función recursiva para listar items
-                            function List-Items {
-                                param($items, $level = 0)
-                                
-                                $indent = "  " * $level
-                                
-                                foreach ($item in $items) {
-                                    if ($item.name) {
-                                        Write-Host "${indent}- $($item.name)"
-                                        
-                                        # Si es una carpeta (tiene subitems)
-                                        if ($item.item) {
-                                            List-Items -items $item.item -level ($level + 1)
-                                        }
-                                        
-                                        # Si tiene request
-                                        if ($item.request) {
-                                            Write-Host "${indent}  [REQUEST] $($item.request.method) $($item.request.url.raw)"
-                                        }
-                                    }
-                                }
-                            }
-                            
-                            if ($jsonContent.item) {
-                                Write-Host "Items en la colección:"
-                                Write-Host "======================"
-                                List-Items -items $jsonContent.item
-                            } else {
-                                Write-Host "La colección no tiene items definidos"
-                            }
-                            
-                        } catch {
-                            Write-Host "[ERROR] No se pudo parsear el JSON: $_"
-                            Write-Host ""
-                            Write-Host "Posible problema de encoding o formato"
-                        }
-                        
-                    } else {
-                        Write-Host "ERROR: Archivo no encontrado"
+                        Write-Host "[ERROR] Entorno NO encontrado"
                     }
                 '''
             }
@@ -167,49 +83,110 @@ pipeline {
             }
         }
         
-        stage('Probar Ejecucion Simple') {
+        stage('Listar Carpetas de Coleccion') {
             steps {
                 script {
-                    // Primero probar ejecutar una carpeta específica si sabemos su nombre
+                    // Script simple para listar carpetas
+                    def folderList = powershell(returnStdout: true, script: '''
+                        $collectionPath = "Collection/ACHDATA - YY.postman_collection.json"
+                        
+                        Write-Host "=== BUSCANDO CARPETAS EN LA COLECCIÓN ==="
+                        
+                        if (Test-Path $collectionPath) {
+                            # Intentar leer el archivo como texto y buscar nombres
+                            $content = Get-Content $collectionPath -Raw
+                            
+                            # Patrón simple para buscar nombres
+                            $pattern = '"name"\s*:\s*"([^"]+)"'
+                            $matches = [regex]::Matches($content, $pattern)
+                            
+                            Write-Host "Se encontraron $($matches.Count) nombres:"
+                            Write-Host "----------------------------------------"
+                            
+                            $count = 0
+                            foreach ($match in $matches) {
+                                $name = $match.Groups[1].Value
+                                $count++
+                                Write-Host "$count. $name"
+                            }
+                            
+                            Write-Host ""
+                            Write-Host "=== MOSTRANDO PRIMEROS 20 NOMBRES ÚNICOS ==="
+                            
+                            $uniqueNames = @{}
+                            foreach ($match in $matches) {
+                                $name = $match.Groups[1].Value
+                                if (-not $uniqueNames.ContainsKey($name)) {
+                                    $uniqueNames[$name] = $true
+                                }
+                            }
+                            
+                            $uniqueList = $uniqueNames.Keys | Sort-Object
+                            $i = 0
+                            foreach ($name in $uniqueList) {
+                                $i++
+                                Write-Host "$i. $name"
+                                if ($i -ge 20) {
+                                    Write-Host "... (más nombres omitidos)"
+                                    break
+                                }
+                            }
+                            
+                        } else {
+                            Write-Host "ERROR: Archivo no encontrado"
+                        }
+                    ''')
+                    
+                    echo "Lista de carpetas:\n${folderList}"
+                }
+            }
+        }
+        
+        stage('Probar Ejecucion de Carpetas') {
+            steps {
+                script {
+                    // Lista de posibles nombres de carpetas para probar
                     def testFolders = [
                         "Autenticación",
-                        "Detallada Natural Y Juridica",
-                        "AT - Autenticación",
-                        "SS - Autenticación",
-                        "CS - Autenticación",
-                        "CER - Autenticación",
-                        "CERCS - Autenticación"
+                        "Detallada Natural Y Juridica", 
+                        "AT",
+                        "SS", 
+                        "CS",
+                        "CER",
+                        "CERCS",
+                        "Auth",
+                        "Authentication",
+                        "Login"
                     ]
                     
                     testFolders.each { folderName ->
                         stage("Probar: ${folderName}") {
                             def result = powershell(returnStdout: true, script: """
-                                \$folderName = "${folderName}"
-                                \$executionFolder = "${env.EXECUTION_FOLDER}"
+                                `$folderName = '${folderName}'
+                                `$executionFolder = '${env.EXECUTION_FOLDER}'
                                 
-                                Write-Host "Probando ejecutar carpeta: '\$folderName'"
-                                Write-Host "----------------------------------------"
+                                Write-Host "=== PROBANDO CARPETA: `$folderName ==="
                                 
-                                # Intentar ejecutar
-                                \$output = newman run "Collection/ACHDATA - YY.postman_collection.json" `
+                                # Intentar ejecutar con esta carpeta
+                                `$output = newman run "Collection/ACHDATA - YY.postman_collection.json" `
                                     -e "Environment/ACHData QA.postman_environment.json" `
-                                    --folder "\$folderName" `
+                                    --folder "`$folderName" `
                                     --insecure `
                                     --reporters cli `
                                     --reporter-cli-no-summary 2>&1
                                 
-                                Write-Host "Salida:"
-                                Write-Host \$output
+                                Write-Host "Salida de Newman:"
+                                Write-Host `$output
                                 
-                                # Verificar si encontró la carpeta
-                                if (\$output -match "Unable to find a folder") {
-                                    Write-Host "RESULTADO: Carpeta no encontrada"
+                                # Verificar resultado
+                                if (`$output -match "Unable to find a folder") {
+                                    Write-Host "RESULTADO: Carpeta '`$folderName' NO encontrada"
                                     Write-Output "NOT_FOUND"
-                                } elseif (\$output -match "iteration") {
-                                    Write-Host "RESULTADO: Ejecutado con éxito"
+                                } elseif (`$output -match "iteration") {
+                                    Write-Host "RESULTADO: Carpeta '`$folderName' EJECUTADA con éxito"
                                     Write-Output "SUCCESS"
                                 } else {
-                                    Write-Host "RESULTADO: Otro resultado"
+                                    Write-Host "RESULTADO: Resultado inesperado para '`$folderName'"
                                     Write-Output "OTHER"
                                 }
                             """).trim()
@@ -224,13 +201,14 @@ pipeline {
         stage('Ejecutar Coleccion Completa') {
             steps {
                 powershell """
-                    \$executionFolder = "${env.EXECUTION_FOLDER}"
-                    \$reportFile = "\$executionFolder\\report_completo.html"
-                    \$jsonReport = "\$executionFolder\\report_completo.json"
-                    \$resultadosFile = "\$executionFolder\\resultados.csv"
+                    `$executionFolder = '${env.EXECUTION_FOLDER}'
+                    `$reportFile = "`$executionFolder\\report_completo.html"
+                    `$jsonReport = "`$executionFolder\\report_completo.json"
+                    `$resultadosFile = "`$executionFolder\\resultados.csv"
                     
                     Write-Host "=== EJECUTANDO COLECCIÓN COMPLETA ==="
                     Write-Host "Esto ejecutará TODOS los requests de la colección"
+                    Write-Host "Reportes se guardarán en: `$executionFolder"
                     Write-Host ""
                     
                     # Ejecutar toda la colección
@@ -238,35 +216,35 @@ pipeline {
                         -e "Environment/ACHData QA.postman_environment.json" `
                         --insecure `
                         --reporters cli,html,json `
-                        --reporter-html-export "\$reportFile" `
-                        --reporter-json-export "\$jsonReport"
+                        --reporter-html-export "`$reportFile" `
+                        --reporter-json-export "`$jsonReport"
                     
-                    \$exitCode = \$LASTEXITCODE
+                    `$exitCode = `$LASTEXITCODE
                     
-                    if (Test-Path "\$jsonReport") {
+                    if (Test-Path "`$jsonReport") {
                         try {
-                            \$jsonContent = Get-Content "\$jsonReport" -Raw | ConvertFrom-Json
-                            \$totalRequests = \$jsonContent.run.stats.requests.total
-                            \$failedRequests = \$jsonContent.run.stats.requests.failed
-                            \$passedRequests = \$totalRequests - \$failedRequests
+                            `$jsonContent = Get-Content "`$jsonReport" -Raw | ConvertFrom-Json
+                            `$totalRequests = `$jsonContent.run.stats.requests.total
+                            `$failedRequests = `$jsonContent.run.stats.requests.failed
+                            `$passedRequests = `$totalRequests - `$failedRequests
                             
                             Write-Host ""
                             Write-Host "=== RESULTADOS ==="
-                            Write-Host "Total requests: \$totalRequests"
-                            Write-Host "Passed: \$passedRequests"
-                            Write-Host "Failed: \$failedRequests"
+                            Write-Host "Total requests: `$totalRequests"
+                            Write-Host "Passed: `$passedRequests"
+                            Write-Host "Failed: `$failedRequests"
                             
-                            "COLECCION_COMPLETA,EJECUTADO,\$totalRequests,\$passedRequests,\$failedRequests" | Out-File -FilePath "\$resultadosFile" -Encoding UTF8
+                            "COLECCION_COMPLETA,EJECUTADO,`$totalRequests,`$passedRequests,`$failedRequests" | Out-File -FilePath "`$resultadosFile" -Encoding UTF8
                             
                         } catch {
-                            Write-Host "Error procesando JSON: \$_"
+                            Write-Host "Error procesando JSON: `$_"
                         }
                     }
                     
-                    if (\$exitCode -eq 0) {
+                    if (`$exitCode -eq 0) {
                         Write-Host "[OK] Ejecución completada exitosamente"
                     } else {
-                        Write-Host "[WARN] Ejecución completada con errores (código: \$exitCode)"
+                        Write-Host "[WARN] Ejecución completada con errores (código: `$exitCode)"
                     }
                 """
             }
@@ -275,44 +253,44 @@ pipeline {
         stage('Generar Resumen') {
             steps {
                 powershell """
-                    \$executionFolder = "${env.EXECUTION_FOLDER}"
-                    \$summaryFile = "\$executionFolder\\resumen_ejecucion.txt"
+                    `$executionFolder = '${env.EXECUTION_FOLDER}'
+                    `$summaryFile = "`$executionFolder\\resumen_ejecucion.txt"
                     
-                    "=========================================" | Out-File -FilePath \$summaryFile
-                    "RESUMEN DE EJECUCION - ACHDATA" | Out-File -FilePath \$summaryFile -Append
-                    "=========================================" | Out-File -FilePath \$summaryFile -Append
-                    "Fecha: ${env.EXECUTION_DATE}" | Out-File -FilePath \$summaryFile -Append
-                    "Hora: ${env.EXECUTION_TIME}" | Out-File -FilePath \$summaryFile -Append
-                    "Ambiente seleccionado: ${params.AMBIENTE}" | Out-File -FilePath \$summaryFile -Append
-                    "=========================================" | Out-File -FilePath \$summaryFile -Append
-                    "" | Out-File -FilePath \$summaryFile -Append
+                    "=========================================" | Out-File -FilePath `$summaryFile
+                    "RESUMEN DE EJECUCION - ACHDATA" | Out-File -FilePath `$summaryFile -Append
+                    "=========================================" | Out-File -FilePath `$summaryFile -Append
+                    "Fecha: ${env.EXECUTION_DATE}" | Out-File -FilePath `$summaryFile -Append
+                    "Hora: ${env.EXECUTION_TIME}" | Out-File -FilePath `$summaryFile -Append
+                    "Ambiente seleccionado: ${params.AMBIENTE}" | Out-File -FilePath `$summaryFile -Append
+                    "=========================================" | Out-File -FilePath `$summaryFile -Append
+                    "" | Out-File -FilePath `$summaryFile -Append
                     
                     # Listar reportes generados
-                    \$htmlReports = Get-ChildItem "\$executionFolder" -Filter "*.html" -ErrorAction SilentlyContinue
-                    if (\$htmlReports) {
-                        "REPORTES GENERADOS:" | Out-File -FilePath \$summaryFile -Append
-                        "-------------------" | Out-File -FilePath \$summaryFile -Append
-                        foreach (\$report in \$htmlReports) {
-                            "  - \$(\$report.Name)" | Out-File -FilePath \$summaryFile -Append
+                    `$htmlReports = Get-ChildItem "`$executionFolder" -Filter "*.html" -ErrorAction SilentlyContinue
+                    if (`$htmlReports) {
+                        "REPORTES GENERADOS:" | Out-File -FilePath `$summaryFile -Append
+                        "-------------------" | Out-File -FilePath `$summaryFile -Append
+                        foreach (`$report in `$htmlReports) {
+                            "  - `$(`$report.Name)" | Out-File -FilePath `$summaryFile -Append
                         }
-                        "" | Out-File -FilePath \$summaryFile -Append
+                        "" | Out-File -FilePath `$summaryFile -Append
                     } else {
-                        "No se generaron reportes HTML" | Out-File -FilePath \$summaryFile -Append
-                        "" | Out-File -FilePath \$summaryFile -Append
+                        "No se generaron reportes HTML" | Out-File -FilePath `$summaryFile -Append
+                        "" | Out-File -FilePath `$summaryFile -Append
                     }
                     
                     # Mostrar resultados si existen
-                    \$resultadosFile = "\$executionFolder\\resultados.csv"
-                    if (Test-Path \$resultadosFile) {
-                        "RESULTADOS:" | Out-File -FilePath \$summaryFile -Append
-                        "----------" | Out-File -FilePath \$summaryFile -Append
-                        Get-Content \$resultadosFile | Out-File -FilePath \$summaryFile -Append
-                        "" | Out-File -FilePath \$summaryFile -Append
+                    `$resultadosFile = "`$executionFolder\\resultados.csv"
+                    if (Test-Path `$resultadosFile) {
+                        "RESULTADOS:" | Out-File -FilePath `$summaryFile -Append
+                        "----------" | Out-File -FilePath `$summaryFile -Append
+                        Get-Content `$resultadosFile | Out-File -FilePath `$summaryFile -Append
+                        "" | Out-File -FilePath `$summaryFile -Append
                     }
                     
                     Write-Host ""
                     Write-Host "=== RESUMEN FINAL ==="
-                    Get-Content \$summaryFile
+                    Get-Content `$summaryFile
                 """
             }
         }
@@ -322,9 +300,9 @@ pipeline {
                 script {
                     // Verificar si hay reportes
                     def hasReports = powershell(returnStdout: true, script: """
-                        \$executionFolder = "${env.EXECUTION_FOLDER}"
-                        \$htmlFiles = Get-ChildItem "\$executionFolder" -Filter "*.html" -ErrorAction SilentlyContinue
-                        if (\$htmlFiles) {
+                        `$executionFolder = '${env.EXECUTION_FOLDER}'
+                        `$htmlFiles = Get-ChildItem "`$executionFolder" -Filter "*.html" -ErrorAction SilentlyContinue
+                        if (`$htmlFiles) {
                             Write-Output "YES"
                         } else {
                             Write-Output "NO"
@@ -335,7 +313,7 @@ pipeline {
                     try {
                         summaryContent = readFile("${env.EXECUTION_FOLDER}\\resumen_ejecucion.txt")
                     } catch (Exception e) {
-                        summaryContent = "No se pudo leer el resumen"
+                        summaryContent = "No se pudo leer el resumen: ${e.message}"
                     }
                     
                     def emailBody = """
