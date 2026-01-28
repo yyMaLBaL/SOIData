@@ -36,20 +36,38 @@ pipeline {
                         Write-Output "${date}_${time}"
                     ''').trim()
                     
-                    def executionFolder = "Ejecuciones/ACHDATA/Fecha_${dateTimeOutput.replace('_', '_Hora_')}"
+                    // Crear carpeta Executions en la misma ruta de los archivos de Postman
+                    def basePath = "Ejecuciones/ACHDATA"
+                    def executionFolder = "${basePath}/Fecha_${dateTimeOutput.split('_')[0]}_Hora_${dateTimeOutput.split('_')[1]}"
                     
                     powershell """
-                        Write-Host "Creando carpeta de ejecucion: ${executionFolder}"
+                        Write-Host "Creando estructura de carpetas..."
+                        
+                        # Crear carpeta base si no existe
+                        if (!(Test-Path "${basePath}")) {
+                            New-Item -ItemType Directory -Force -Path "${basePath}"
+                            Write-Host "Carpeta base creada: ${basePath}"
+                        }
+                        
+                        # Crear carpeta de ejecucion especifica
                         New-Item -ItemType Directory -Force -Path "${executionFolder}"
+                        Write-Host "Carpeta de ejecucion creada: ${executionFolder}"
+                        
+                        # Crear subcarpetas para organizacion
+                        New-Item -ItemType Directory -Force -Path "${executionFolder}/Reportes_HTML"
+                        New-Item -ItemType Directory -Force -Path "${executionFolder}/Reportes_JSON"
+                        Write-Host "Subcarpetas creadas"
                     """
                     
                     env.EXECUTION_FOLDER = executionFolder
+                    env.EXECUTION_BASE_PATH = basePath
                     env.EXECUTION_DATE = dateTimeOutput.split('_')[0]
                     env.EXECUTION_TIME = dateTimeOutput.split('_')[1]
                     
                     echo "Fecha: ${env.EXECUTION_DATE}"
                     echo "Hora: ${env.EXECUTION_TIME}"
-                    echo "Carpeta: ${env.EXECUTION_FOLDER}"
+                    echo "Carpeta base: ${env.EXECUTION_BASE_PATH}"
+                    echo "Carpeta ejecucion: ${env.EXECUTION_FOLDER}"
                 }
             }
         }
@@ -63,7 +81,6 @@ pipeline {
                         [params.AMBIENTE]
                     
                     // Lista de carpetas base (sin prefijo de ambiente)
-                    // Ajusta esta lista según tu colección completa
                     def carpetasBase = [
                         'Autenticacion',
                         'Detallada Natural Y Juridica'
@@ -80,9 +97,9 @@ pipeline {
                                     \$ambiente = "${ambiente}"
                                     \$carpetaBase = "${carpetaBase}"
                                     \$executionFolder = "${env.EXECUTION_FOLDER}".Replace('/', '\\')
-                                    \$safeFileName = "\${ambiente}_\${carpetaBase}".Replace(' ', '_')
-                                    \$reportFile = "\$executionFolder\\report_\${safeFileName}.html"
-                                    \$jsonReport = "\$executionFolder\\report_\${safeFileName}.json"
+                                    \$safeFileName = "\${ambiente}_\${carpetaBase}".Replace(' ', '_').Replace('-', '_')
+                                    \$reportFile = "\$executionFolder\\Reportes_HTML\\report_\${safeFileName}.html"
+                                    \$jsonReport = "\$executionFolder\\Reportes_JSON\\report_\${safeFileName}.json"
                                     \$resultadosFile = "\$executionFolder\\resultados.csv"
                                     
                                     Write-Host "========================================="
@@ -94,6 +111,17 @@ pipeline {
                                     \$outputText = ""
                                     
                                     try {
+                                        # Verificar que los archivos de entrada existen
+                                        if (!(Test-Path "Collection/ACHDATA - YY.postman_collection.json")) {
+                                            Write-Host "[ERROR] No se encuentra la colección"
+                                            exit 1
+                                        }
+                                        
+                                        if (!(Test-Path "Environment/ACHData QA.postman_environment.json")) {
+                                            Write-Host "[ERROR] No se encuentra el entorno"
+                                            exit 1
+                                        }
+                                        
                                         \$outputText = newman run "Collection/ACHDATA - YY.postman_collection.json" `
                                             -e "Environment/ACHData QA.postman_environment.json" `
                                             --folder "\${folderName}" `
@@ -135,13 +163,23 @@ pipeline {
                                             Write-Host "  Assertions: \${totalAssertions} (OK:\${passedAssertions} / FAIL:\${failedAssertions})"
                                             Write-Host ""
                                             
+                                            if (!(Test-Path "\${resultadosFile}")) {
+                                                "AMBIENTE,CARPETA,ESTADO,TOTAL_REQUESTS,REQUESTS_OK,REQUESTS_FAIL,TOTAL_ASSERTIONS,ASSERTIONS_OK,ASSERTIONS_FAIL" | Out-File -FilePath "\${resultadosFile}" -Encoding UTF8
+                                            }
+                                            
                                             "\${ambiente},\${carpetaBase},EJECUTADO,\${totalRequests},\${passedRequests},\${failedRequests},\${totalAssertions},\${passedAssertions},\${failedAssertions}" | Out-File -FilePath "\${resultadosFile}" -Append -Encoding UTF8
                                         } catch {
                                             Write-Host "Error procesando JSON: \$_"
+                                            if (!(Test-Path "\${resultadosFile}")) {
+                                                "AMBIENTE,CARPETA,ESTADO,TOTAL_REQUESTS,REQUESTS_OK,REQUESTS_FAIL,TOTAL_ASSERTIONS,ASSERTIONS_OK,ASSERTIONS_FAIL" | Out-File -FilePath "\${resultadosFile}" -Encoding UTF8
+                                            }
                                             "\${ambiente},\${carpetaBase},ERROR,0,0,0,0,0,0" | Out-File -FilePath "\${resultadosFile}" -Append -Encoding UTF8
                                         }
                                     } else {
                                         Write-Host "[INFO] Carpeta no disponible"
+                                        if (!(Test-Path "\${resultadosFile}")) {
+                                            "AMBIENTE,CARPETA,ESTADO,TOTAL_REQUESTS,REQUESTS_OK,REQUESTS_FAIL,TOTAL_ASSERTIONS,ASSERTIONS_OK,ASSERTIONS_FAIL" | Out-File -FilePath "\${resultadosFile}" -Encoding UTF8
+                                        }
                                         "\${ambiente},\${carpetaBase},NO_DISPONIBLE,0,0,0,0,0,0" | Out-File -FilePath "\${resultadosFile}" -Append -Encoding UTF8
                                     }
                                     
@@ -171,6 +209,7 @@ pipeline {
                     "Fecha: ${env.EXECUTION_DATE}" | Out-File -FilePath \$summaryFile -Append
                     "Hora: ${env.EXECUTION_TIME}" | Out-File -FilePath \$summaryFile -Append
                     "Ambiente: ${params.AMBIENTE}" | Out-File -FilePath \$summaryFile -Append
+                    "Carpeta de ejecucion: \$executionFolder" | Out-File -FilePath \$summaryFile -Append
                     "=========================================" | Out-File -FilePath \$summaryFile -Append
                     "" | Out-File -FilePath \$summaryFile -Append
                     
@@ -188,6 +227,11 @@ pipeline {
                         \$totalFailedRequests = 0
                         
                         foreach (\$line in \$lines) {
+                            # Saltar encabezado
+                            if (\$line -match "^AMBIENTE,") {
+                                continue
+                            }
+                            
                             \$parts = \$line.Split(',')
                             if (\$parts.Count -eq 9) {
                                 \$amb = \$parts[0].Trim()
@@ -243,10 +287,15 @@ pipeline {
                         "No se encontraron resultados" | Out-File -FilePath \$summaryFile -Append
                     }
                     
-                    \$htmlReports = Get-ChildItem "\$executionFolder" -Filter "*.html" -ErrorAction SilentlyContinue
+                    \$htmlReports = Get-ChildItem "\$executionFolder\\Reportes_HTML" -Filter "*.html" -ErrorAction SilentlyContinue
+                    \$jsonReports = Get-ChildItem "\$executionFolder\\Reportes_JSON" -Filter "*.json" -ErrorAction SilentlyContinue
+                    
                     "" | Out-File -FilePath \$summaryFile -Append
                     "=========================================" | Out-File -FilePath \$summaryFile -Append
-                    "Reportes HTML generados: \$(\$htmlReports.Count)" | Out-File -FilePath \$summaryFile -Append
+                    "Archivos generados:" | Out-File -FilePath \$summaryFile -Append
+                    "  Reportes HTML: \$(\$htmlReports.Count)" | Out-File -FilePath \$summaryFile -Append
+                    "  Reportes JSON: \$(\$jsonReports.Count)" | Out-File -FilePath \$summaryFile -Append
+                    "  Archivo CSV: \$(if (Test-Path "\$resultadosFile") { 'SI' } else { 'NO' })" | Out-File -FilePath \$summaryFile -Append
                     
                     Write-Host ""
                     Write-Host "=== RESUMEN ==="
@@ -260,8 +309,9 @@ pipeline {
                 script {
                     def htmlFiles = powershell(returnStdout: true, script: """
                         \$executionFolder = "${env.EXECUTION_FOLDER}".Replace('/', '\\')
-                        if (Test-Path "\$executionFolder") {
-                            \$files = Get-ChildItem "\$executionFolder" -Filter "*.html" -ErrorAction SilentlyContinue
+                        \$htmlFolder = "\$executionFolder\\Reportes_HTML"
+                        if (Test-Path \$htmlFolder) {
+                            \$files = Get-ChildItem \$htmlFolder -Filter "*.html" -ErrorAction SilentlyContinue
                             if (\$files) {
                                 Write-Output (\$files.Name -join ",")
                             } else {
@@ -287,6 +337,7 @@ pipeline {
                         <h2>Reporte de Ejecucion Postman - ACHDATA</h2>
                         <p><strong>Fecha:</strong> ${env.EXECUTION_DATE} a las ${env.EXECUTION_TIME}</p>
                         <p><strong>Ambiente:</strong> ${params.AMBIENTE}</p>
+                        <p><strong>Carpeta de ejecucion:</strong> ${env.EXECUTION_FOLDER}</p>
                         
                         <h3>Resumen:</h3>
                         <pre style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; font-size: 12px;">
@@ -309,7 +360,7 @@ ${summaryContent}
                             subject: "Reporte Postman ACHDATA - ${params.AMBIENTE} - ${env.EXECUTION_DATE}",
                             body: emailBody,
                             mimeType: 'text/html',
-                            attachmentsPattern: "${env.EXECUTION_FOLDER}/**/*.html",
+                            attachmentsPattern: "${env.EXECUTION_FOLDER}/**/*",
                             from: 'jenkins@cbit-online.com'
                         )
                         echo "[OK] Correo enviado"
@@ -326,6 +377,7 @@ ${summaryContent}
             script {
                 echo "Proceso completado"
                 echo "Reportes en: ${env.EXECUTION_FOLDER}"
+                echo "Ruta base: ${env.EXECUTION_BASE_PATH}"
                 
                 try {
                     archiveArtifacts artifacts: "${env.EXECUTION_FOLDER}/**/*", allowEmptyArchive: true
