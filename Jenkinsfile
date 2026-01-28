@@ -122,12 +122,12 @@ pipeline {
                                     \$folderExists = \$false
                                     
                                     try {
-                                        newman run "Collection/ACHDATA - YY.postman_collection.json" ``
-                                            -e "Environment/ACHData QA.postman_environment.json" ``
-                                            --folder "\${folderName}" ``
-                                            --insecure ``
-                                            --reporters cli,html,json ``
-                                            --reporter-html-export "\${reportFile}" ``
+                                        newman run "Collection/ACHDATA - YY.postman_collection.json" `
+                                            -e "Environment/ACHData QA.postman_environment.json" `
+                                            --folder "\${folderName}" `
+                                            --insecure `
+                                            --reporters cli,html,json `
+                                            --reporter-html-export "\${reportFile}" `
                                             --reporter-json-export "\${jsonReport}"
                                         
                                         \$newmanExitCode = \$LASTEXITCODE
