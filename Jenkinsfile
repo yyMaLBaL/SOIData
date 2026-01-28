@@ -36,8 +36,7 @@ pipeline {
                         Write-Output "${date}_${time}"
                     ''').trim()
                     
-                    // Usar el workspace de Jenkins como base
-                    def executionFolder = "${env.WORKSPACE}/Executions/ACHDATA/Fecha_${dateTimeOutput.replace('_', '_Hora_')}"
+                    def executionFolder = "Executions/ACHDATA/Fecha_${dateTimeOutput.replace('_', '_Hora_')}"
                     
                     powershell """
                         Write-Host "Creando carpeta de ejecucion: ${executionFolder}"
@@ -58,62 +57,85 @@ pipeline {
         stage('Ejecutar Coleccion Postman') {
             steps {
                 script {
+                    // Obtener las carpetas disponibles del JSON
+                    def carpetasDisponibles = powershell(returnStdout: true, script: '''
+                        $collection = Get-Content "Collection/ACHDATA - YY.postman_collection.json" -Raw -Encoding UTF8 | ConvertFrom-Json
+                        
+                        function Get-FolderNames {
+                            param($items)
+                            $folders = @()
+                            foreach ($item in $items) {
+                                if ($item.name -match "^(AT|SS|CS|CER|CERCS) - ") {
+                                    $folders += $item.name
+                                }
+                                if ($item.item) {
+                                    $folders += Get-FolderNames -items $item.item
+                                }
+                            }
+                            return $folders
+                        }
+                        
+                        $allFolders = Get-FolderNames -items $collection.item
+                        $allFolders | ForEach-Object { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Write-Output $_ }
+                    ''').trim().split('\n').collect { it.trim() }.findAll { it }
+                    
+                    echo "Carpetas encontradas: ${carpetasDisponibles.size()}"
+                    carpetasDisponibles.each { echo "  - ${it}" }
+                    
+                    // Definir ambientes a ejecutar
                     def ambientes = params.AMBIENTE == 'ALL' ? 
                         ['AT', 'SS', 'CS', 'CER', 'CERCS'] : 
                         [params.AMBIENTE]
                     
-                    // Lista con nombres EXACTOS de tu colección
-                    def carpetasBase = [
-                        'Autenticación',
-                        'Detallada Natural Y Jurídica'
-                    ]
-                    
+                    // Filtrar carpetas por ambiente
                     ambientes.each { ambiente ->
-                        carpetasBase.each { carpetaBase ->
-                            def folderName = "${ambiente} - ${carpetaBase}"
+                        def carpetasParaEsteAmbiente = carpetasDisponibles.findAll { it.startsWith("${ambiente} - ") }
+                        
+                        carpetasParaEsteAmbiente.each { folderName ->
+                            // Extraer el nombre sin el prefijo del ambiente
+                            def carpetaBase = folderName.replaceFirst("${ambiente} - ", "")
                             
-                            stage("${ambiente} - ${carpetaBase}") {
+                            stage("${folderName}") {
                                 def exitCode = powershell(returnStatus: true, script: """
-                                    \$PSDefaultParameterValues['*:Encoding'] = 'utf8'
+                                    \$OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
                                     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+                                    chcp 65001 | Out-Null
                                     
                                     \$folderName = "${folderName}"
                                     \$ambiente = "${ambiente}"
                                     \$carpetaBase = "${carpetaBase}"
                                     \$executionFolder = "${env.EXECUTION_FOLDER}".Replace('/', '\\')
                                     
-                                    # Asegurar que la carpeta existe
                                     if (-not (Test-Path "\$executionFolder")) {
                                         New-Item -ItemType Directory -Force -Path "\$executionFolder" | Out-Null
                                     }
                                     
-                                    \$safeFileName = "\${ambiente}_\${carpetaBase}" -replace ' ', '_' -replace 'á', 'a' -replace 'é', 'e' -replace 'í', 'i' -replace 'ó', 'o' -replace 'ú', 'u'
+                                    \$safeFileName = ("\${ambiente}_\${carpetaBase}" -replace '[^a-zA-Z0-9_-]', '_')
                                     \$reportFile = "\$executionFolder\\report_\${safeFileName}.html"
                                     \$jsonReport = "\$executionFolder\\report_\${safeFileName}.json"
                                     \$resultadosFile = "\$executionFolder\\resultados.csv"
                                     
                                     Write-Host "========================================="
-                                    Write-Host "Intentando ejecutar: \${folderName}"
+                                    Write-Host "Ejecutando: \${folderName}"
                                     Write-Host "========================================="
                                     
                                     \$newmanExitCode = 0
                                     \$folderExists = \$false
-                                    \$outputText = ""
                                     
                                     try {
-                                        \$outputText = newman run "Collection/ACHDATA - YY.postman_collection.json" `
+                                        \$result = newman run "Collection/ACHDATA - YY.postman_collection.json" `
                                             -e "Environment/ACHData QA.postman_environment.json" `
                                             --folder "\${folderName}" `
                                             --insecure `
                                             --reporters cli,html,json `
                                             --reporter-html-export "\${reportFile}" `
-                                            --reporter-json-export "\${jsonReport}" 2>&1 | Out-String
+                                            --reporter-json-export "\${jsonReport}" 2>&1
                                         
                                         \$newmanExitCode = \$LASTEXITCODE
-                                        Write-Host \$outputText
+                                        Write-Host \$result
                                         
-                                        if (\$outputText -match "Unable to find a folder") {
-                                            Write-Host "[INFO] Carpeta '\${folderName}' no encontrada"
+                                        if (\$result -match "Unable to find a folder") {
+                                            Write-Host "[INFO] Carpeta no encontrada"
                                             \$folderExists = \$false
                                         } else {
                                             \$folderExists = \$true
@@ -121,13 +143,12 @@ pipeline {
                                         
                                     } catch {
                                         Write-Host "Error: \$_"
-                                        \$newmanExitCode = 1
                                         \$folderExists = \$false
                                     }
                                     
                                     if (\$folderExists -and (Test-Path "\${jsonReport}")) {
                                         try {
-                                            \$jsonContent = Get-Content "\${jsonReport}" -Raw | ConvertFrom-Json
+                                            \$jsonContent = Get-Content "\${jsonReport}" -Raw -Encoding UTF8 | ConvertFrom-Json
                                             \$totalRequests = \$jsonContent.run.stats.requests.total
                                             \$failedRequests = \$jsonContent.run.stats.requests.failed
                                             \$passedRequests = \$totalRequests - \$failedRequests
@@ -137,10 +158,8 @@ pipeline {
                                             \$passedAssertions = \$totalAssertions - \$failedAssertions
                                             
                                             Write-Host ""
-                                            Write-Host "[OK] Resultados:"
-                                            Write-Host "  Requests: \${totalRequests} (OK:\${passedRequests} / FAIL:\${failedRequests})"
-                                            Write-Host "  Assertions: \${totalAssertions} (OK:\${passedAssertions} / FAIL:\${failedAssertions})"
-                                            Write-Host ""
+                                            Write-Host "[OK] Requests: \${totalRequests} (OK:\${passedRequests} / FAIL:\${failedRequests})"
+                                            Write-Host "[OK] Assertions: \${totalAssertions} (OK:\${passedAssertions} / FAIL:\${failedAssertions})"
                                             
                                             "\${ambiente},\${carpetaBase},EJECUTADO,\${totalRequests},\${passedRequests},\${failedRequests},\${totalAssertions},\${passedAssertions},\${failedAssertions}" | Out-File -FilePath "\${resultadosFile}" -Append -Encoding UTF8
                                         } catch {
@@ -154,10 +173,6 @@ pipeline {
                                     
                                     exit 0
                                 """)
-                                
-                                if (exitCode != 0) {
-                                    echo "[WARN] Hubo un problema, pero continuamos"
-                                }
                             }
                         }
                     }
@@ -168,8 +183,7 @@ pipeline {
         stage('Generar Resumen') {
             steps {
                 powershell """
-                    \$PSDefaultParameterValues['*:Encoding'] = 'utf8'
-                    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+                    \$OutputEncoding = [System.Text.Encoding]::UTF8
                     
                     \$executionFolder = "${env.EXECUTION_FOLDER}".Replace('/', '\\')
                     \$summaryFile = "\$executionFolder\\resumen_ejecucion.txt"
@@ -181,7 +195,6 @@ pipeline {
                     "Fecha: ${env.EXECUTION_DATE}" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                     "Hora: ${env.EXECUTION_TIME}" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                     "Ambiente: ${params.AMBIENTE}" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
-                    "Ruta: \$executionFolder" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                     "=========================================" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                     "" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                     
@@ -240,7 +253,7 @@ pipeline {
                         "" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                         
                         if (\$ejecutados -gt 0) {
-                            "TOTALES (ejecutadas):" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                            "TOTALES:" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                             "Requests totales: \$totalRequests" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                             "Requests exitosos: \$totalPassedRequests" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                             "Requests fallidos: \$totalFailedRequests" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
@@ -269,27 +282,11 @@ pipeline {
         stage('Enviar Reportes por Correo') {
             steps {
                 script {
-                    def htmlFiles = powershell(returnStdout: true, script: """
-                        \$executionFolder = "${env.EXECUTION_FOLDER}".Replace('/', '\\')
-                        if (Test-Path "\$executionFolder") {
-                            \$files = Get-ChildItem "\$executionFolder" -Filter "*.html" -ErrorAction SilentlyContinue
-                            if (\$files) {
-                                Write-Output (\$files.Name -join ",")
-                            } else {
-                                Write-Output "NO_FILES"
-                            }
-                        } else {
-                            Write-Output "NO_FOLDER"
-                        }
-                    """).trim()
-                    
-                    echo "Archivos HTML encontrados: ${htmlFiles}"
-                    
                     def summaryContent = ""
                     try {
                         summaryContent = readFile("${env.EXECUTION_FOLDER}/resumen_ejecucion.txt")
                     } catch (Exception e) {
-                        summaryContent = "No se pudo leer el resumen: ${e.message}"
+                        summaryContent = "No se pudo leer el resumen"
                     }
                     
                     def emailBody = """
@@ -303,8 +300,6 @@ pipeline {
                         <pre style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; font-size: 12px;">
 ${summaryContent}
                         </pre>
-                        
-                        <p><strong>Reportes adjuntos:</strong> ${htmlFiles != 'NO_FILES' && htmlFiles != 'NO_FOLDER' ? htmlFiles.split(',').size() : 0} archivos HTML</p>
                         
                         <hr>
                         <p style="font-size: 11px; color: #666;"><em>Generado automaticamente por Jenkins</em></p>
