@@ -8,10 +8,10 @@
   },
   "item": [
     {
-      "name": "Autenticación",
+      "name": "Autenticacion",
       "item": [
         {
-          "name": "AT - Autenticación",
+          "name": "AT - Autenticacion",
           "event": [
             {
               "listen": "test",
@@ -168,10 +168,10 @@
       "name": "Consultas",
       "item": [
         {
-          "name": "Detallada Natural Y Jurídica",
+          "name": "Detallada Natural Y Juridica",
           "item": [
             {
-              "name": "AT - Detallada Natural Y Jurídica",
+              "name": "AT - Detallada Natural Y Juridica",
               "item": [
                 {
                   "name": "Consulta Individual Natural",
@@ -669,7 +669,7 @@
                   "response": []
                 },
                 {
-                  "name": "Consulta Individual Jurídica",
+                  "name": "Consulta Individual Juridica",
                   "event": [
                     {
                       "listen": "prerequest",
@@ -816,7 +816,7 @@
                   "response": []
                 },
                 {
-                  "name": "Consulta Individual Jurídica - Simple",
+                  "name": "Consulta Individual Juridica - Simple",
                   "event": [
                     {
                       "listen": "prerequest",
@@ -968,7 +968,7 @@
                   "response": []
                 },
                 {
-                  "name": "Consulta Masiva Jurídica",
+                  "name": "Consulta Masiva Juridica",
                   "event": [
                     {
                       "listen": "test",
@@ -1055,7 +1055,7 @@
                   "response": []
                 },
                 {
-                  "name": "Consulta Archivo Masiva Jurídica Estado",
+                  "name": "Consulta Archivo Masiva Juridica Estado",
                   "request": {
                     "method": "GET",
                     "header": [
@@ -1102,7 +1102,7 @@
                   "response": []
                 },
                 {
-                  "name": "Descarga Archivo Masiva Jurídica",
+                  "name": "Descarga Archivo Masiva Juridica",
                   "request": {
                     "method": "GET",
                     "header": [

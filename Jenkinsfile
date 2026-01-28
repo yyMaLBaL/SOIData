@@ -27,35 +27,6 @@ pipeline {
             }
         }
         
-        stage('Verificar Archivos') {
-            steps {
-                powershell '''
-                    Write-Host "=== VERIFICANDO ARCHIVOS ==="
-                    Write-Host "Directorio actual: $(Get-Location)"
-                    Write-Host ""
-                    
-                    # Verificar colección
-                    $collectionPath = "Collection/ACHDATA - YY.postman_collection.json"
-                    if (Test-Path $collectionPath) {
-                        Write-Host "[OK] Colección encontrada: $collectionPath"
-                        Write-Host "Tamaño: $((Get-Item $collectionPath).Length) bytes"
-                    } else {
-                        Write-Host "[ERROR] Colección NO encontrada"
-                    }
-                    
-                    Write-Host ""
-                    
-                    # Verificar entorno
-                    $envPath = "Environment/ACHData QA.postman_environment.json"
-                    if (Test-Path $envPath) {
-                        Write-Host "[OK] Entorno encontrado: $envPath"
-                    } else {
-                        Write-Host "[ERROR] Entorno NO encontrado"
-                    }
-                '''
-            }
-        }
-        
         stage('Configurar Ejecucion') {
             steps {
                 script {
@@ -65,7 +36,7 @@ pipeline {
                         Write-Output "${date}_${time}"
                     ''').trim()
                     
-                    def executionFolder = "Executions\\ACHDATA\\Fecha_${dateTimeOutput.replace('_', '_Hora_')}"
+                    def executionFolder = "Ejecuciones/ACHDATA/Fecha_${dateTimeOutput.replace('_', '_Hora_')}"
                     
                     powershell """
                         Write-Host "Creando carpeta de ejecucion: ${executionFolder}"
@@ -83,214 +54,203 @@ pipeline {
             }
         }
         
-        stage('Listar Carpetas de Coleccion') {
+        stage('Ejecutar Coleccion Postman') {
             steps {
                 script {
-                    // Script simple para listar carpetas
-                    def folderList = powershell(returnStdout: true, script: '''
-                        $collectionPath = "Collection/ACHDATA - YY.postman_collection.json"
-                        
-                        Write-Host "=== BUSCANDO CARPETAS EN LA COLECCIÓN ==="
-                        
-                        if (Test-Path $collectionPath) {
-                            # Intentar leer el archivo como texto y buscar nombres
-                            $content = Get-Content $collectionPath -Raw
-                            
-                            # Patrón simple para buscar nombres
-                            $pattern = '"name"\s*:\s*"([^"]+)"'
-                            $matches = [regex]::Matches($content, $pattern)
-                            
-                            Write-Host "Se encontraron $($matches.Count) nombres:"
-                            Write-Host "----------------------------------------"
-                            
-                            $count = 0
-                            foreach ($match in $matches) {
-                                $name = $match.Groups[1].Value
-                                $count++
-                                Write-Host "$count. $name"
-                            }
-                            
-                            Write-Host ""
-                            Write-Host "=== MOSTRANDO PRIMEROS 20 NOMBRES ÚNICOS ==="
-                            
-                            $uniqueNames = @{}
-                            foreach ($match in $matches) {
-                                $name = $match.Groups[1].Value
-                                if (-not $uniqueNames.ContainsKey($name)) {
-                                    $uniqueNames[$name] = $true
-                                }
-                            }
-                            
-                            $uniqueList = $uniqueNames.Keys | Sort-Object
-                            $i = 0
-                            foreach ($name in $uniqueList) {
-                                $i++
-                                Write-Host "$i. $name"
-                                if ($i -ge 20) {
-                                    Write-Host "... (más nombres omitidos)"
-                                    break
-                                }
-                            }
-                            
-                        } else {
-                            Write-Host "ERROR: Archivo no encontrado"
-                        }
-                    ''')
+                    // Definir ambientes a ejecutar
+                    def ambientes = params.AMBIENTE == 'ALL' ? 
+                        ['AT', 'SS', 'CS', 'CER', 'CERCS'] : 
+                        [params.AMBIENTE]
                     
-                    echo "Lista de carpetas:\n${folderList}"
-                }
-            }
-        }
-        
-        stage('Probar Ejecucion de Carpetas') {
-            steps {
-                script {
-                    // Lista de posibles nombres de carpetas para probar
-                    def testFolders = [
-                        "Autenticación",
-                        "Detallada Natural Y Juridica", 
-                        "AT",
-                        "SS", 
-                        "CS",
-                        "CER",
-                        "CERCS",
-                        "Auth",
-                        "Authentication",
-                        "Login"
+                    // Lista de carpetas base (sin prefijo de ambiente)
+                    // Ajusta esta lista según tu colección completa
+                    def carpetasBase = [
+                        'Autenticacion',
+                        'Detallada Natural Y Juridica'
+                        // Agrega aquí el resto de carpetas que veas en tu colección
                     ]
                     
-                    testFolders.each { folderName ->
-                        stage("Probar: ${folderName}") {
-                            def result = powershell(returnStdout: true, script: """
-                                `$folderName = '${folderName}'
-                                `$executionFolder = '${env.EXECUTION_FOLDER}'
-                                
-                                Write-Host "=== PROBANDO CARPETA: `$folderName ==="
-                                
-                                # Intentar ejecutar con esta carpeta
-                                `$output = newman run "Collection/ACHDATA - YY.postman_collection.json" `
-                                    -e "Environment/ACHData QA.postman_environment.json" `
-                                    --folder "`$folderName" `
-                                    --insecure `
-                                    --reporters cli `
-                                    --reporter-cli-no-summary 2>&1
-                                
-                                Write-Host "Salida de Newman:"
-                                Write-Host `$output
-                                
-                                # Verificar resultado
-                                if (`$output -match "Unable to find a folder") {
-                                    Write-Host "RESULTADO: Carpeta '`$folderName' NO encontrada"
-                                    Write-Output "NOT_FOUND"
-                                } elseif (`$output -match "iteration") {
-                                    Write-Host "RESULTADO: Carpeta '`$folderName' EJECUTADA con éxito"
-                                    Write-Output "SUCCESS"
-                                } else {
-                                    Write-Host "RESULTADO: Resultado inesperado para '`$folderName'"
-                                    Write-Output "OTHER"
-                                }
-                            """).trim()
+                    ambientes.each { ambiente ->
+                        carpetasBase.each { carpetaBase ->
+                            def folderName = "${ambiente} - ${carpetaBase}"
                             
-                            echo "Resultado para '${folderName}': ${result}"
+                            stage("${ambiente} - ${carpetaBase}") {
+                                def exitCode = powershell(returnStatus: true, script: """
+                                    \$folderName = "${folderName}"
+                                    \$ambiente = "${ambiente}"
+                                    \$carpetaBase = "${carpetaBase}"
+                                    \$executionFolder = "${env.EXECUTION_FOLDER}".Replace('/', '\\')
+                                    \$safeFileName = "\${ambiente}_\${carpetaBase}".Replace(' ', '_')
+                                    \$reportFile = "\$executionFolder\\report_\${safeFileName}.html"
+                                    \$jsonReport = "\$executionFolder\\report_\${safeFileName}.json"
+                                    \$resultadosFile = "\$executionFolder\\resultados.csv"
+                                    
+                                    Write-Host "========================================="
+                                    Write-Host "Intentando ejecutar: \${folderName}"
+                                    Write-Host "========================================="
+                                    
+                                    \$newmanExitCode = 0
+                                    \$folderExists = \$false
+                                    \$outputText = ""
+                                    
+                                    try {
+                                        \$outputText = newman run "Collection/ACHDATA - YY.postman_collection.json" `
+                                            -e "Environment/ACHData QA.postman_environment.json" `
+                                            --folder "\${folderName}" `
+                                            --insecure `
+                                            --reporters cli,html,json `
+                                            --reporter-html-export "\${reportFile}" `
+                                            --reporter-json-export "\${jsonReport}" 2>&1 | Out-String
+                                        
+                                        \$newmanExitCode = \$LASTEXITCODE
+                                        Write-Host \$outputText
+                                        
+                                        if (\$outputText -match "Unable to find a folder") {
+                                            Write-Host "[INFO] Carpeta '\${folderName}' no encontrada"
+                                            \$folderExists = \$false
+                                        } else {
+                                            \$folderExists = \$true
+                                        }
+                                        
+                                    } catch {
+                                        Write-Host "Error: \$_"
+                                        \$newmanExitCode = 1
+                                        \$folderExists = \$false
+                                    }
+                                    
+                                    if (\$folderExists -and (Test-Path "\${jsonReport}")) {
+                                        try {
+                                            \$jsonContent = Get-Content "\${jsonReport}" -Raw | ConvertFrom-Json
+                                            \$totalRequests = \$jsonContent.run.stats.requests.total
+                                            \$failedRequests = \$jsonContent.run.stats.requests.failed
+                                            \$passedRequests = \$totalRequests - \$failedRequests
+                                            
+                                            \$totalAssertions = \$jsonContent.run.stats.assertions.total
+                                            \$failedAssertions = \$jsonContent.run.stats.assertions.failed
+                                            \$passedAssertions = \$totalAssertions - \$failedAssertions
+                                            
+                                            Write-Host ""
+                                            Write-Host "[OK] Resultados:"
+                                            Write-Host "  Requests: \${totalRequests} (OK:\${passedRequests} / FAIL:\${failedRequests})"
+                                            Write-Host "  Assertions: \${totalAssertions} (OK:\${passedAssertions} / FAIL:\${failedAssertions})"
+                                            Write-Host ""
+                                            
+                                            "\${ambiente},\${carpetaBase},EJECUTADO,\${totalRequests},\${passedRequests},\${failedRequests},\${totalAssertions},\${passedAssertions},\${failedAssertions}" | Out-File -FilePath "\${resultadosFile}" -Append -Encoding UTF8
+                                        } catch {
+                                            Write-Host "Error procesando JSON: \$_"
+                                            "\${ambiente},\${carpetaBase},ERROR,0,0,0,0,0,0" | Out-File -FilePath "\${resultadosFile}" -Append -Encoding UTF8
+                                        }
+                                    } else {
+                                        Write-Host "[INFO] Carpeta no disponible"
+                                        "\${ambiente},\${carpetaBase},NO_DISPONIBLE,0,0,0,0,0,0" | Out-File -FilePath "\${resultadosFile}" -Append -Encoding UTF8
+                                    }
+                                    
+                                    exit 0
+                                """)
+                                
+                                if (exitCode != 0) {
+                                    echo "[WARN] Hubo un problema, pero continuamos"
+                                }
+                            }
                         }
                     }
                 }
-            }
-        }
-        
-        stage('Ejecutar Coleccion Completa') {
-            steps {
-                powershell """
-                    `$executionFolder = '${env.EXECUTION_FOLDER}'
-                    `$reportFile = "`$executionFolder\\report_completo.html"
-                    `$jsonReport = "`$executionFolder\\report_completo.json"
-                    `$resultadosFile = "`$executionFolder\\resultados.csv"
-                    
-                    Write-Host "=== EJECUTANDO COLECCIÓN COMPLETA ==="
-                    Write-Host "Esto ejecutará TODOS los requests de la colección"
-                    Write-Host "Reportes se guardarán en: `$executionFolder"
-                    Write-Host ""
-                    
-                    # Ejecutar toda la colección
-                    newman run "Collection/ACHDATA - YY.postman_collection.json" `
-                        -e "Environment/ACHData QA.postman_environment.json" `
-                        --insecure `
-                        --reporters cli,html,json `
-                        --reporter-html-export "`$reportFile" `
-                        --reporter-json-export "`$jsonReport"
-                    
-                    `$exitCode = `$LASTEXITCODE
-                    
-                    if (Test-Path "`$jsonReport") {
-                        try {
-                            `$jsonContent = Get-Content "`$jsonReport" -Raw | ConvertFrom-Json
-                            `$totalRequests = `$jsonContent.run.stats.requests.total
-                            `$failedRequests = `$jsonContent.run.stats.requests.failed
-                            `$passedRequests = `$totalRequests - `$failedRequests
-                            
-                            Write-Host ""
-                            Write-Host "=== RESULTADOS ==="
-                            Write-Host "Total requests: `$totalRequests"
-                            Write-Host "Passed: `$passedRequests"
-                            Write-Host "Failed: `$failedRequests"
-                            
-                            "COLECCION_COMPLETA,EJECUTADO,`$totalRequests,`$passedRequests,`$failedRequests" | Out-File -FilePath "`$resultadosFile" -Encoding UTF8
-                            
-                        } catch {
-                            Write-Host "Error procesando JSON: `$_"
-                        }
-                    }
-                    
-                    if (`$exitCode -eq 0) {
-                        Write-Host "[OK] Ejecución completada exitosamente"
-                    } else {
-                        Write-Host "[WARN] Ejecución completada con errores (código: `$exitCode)"
-                    }
-                """
             }
         }
         
         stage('Generar Resumen') {
             steps {
                 powershell """
-                    `$executionFolder = '${env.EXECUTION_FOLDER}'
-                    `$summaryFile = "`$executionFolder\\resumen_ejecucion.txt"
+                    \$executionFolder = "${env.EXECUTION_FOLDER}".Replace('/', '\\')
+                    \$summaryFile = "\$executionFolder\\resumen_ejecucion.txt"
+                    \$resultadosFile = "\$executionFolder\\resultados.csv"
                     
-                    "=========================================" | Out-File -FilePath `$summaryFile
-                    "RESUMEN DE EJECUCION - ACHDATA" | Out-File -FilePath `$summaryFile -Append
-                    "=========================================" | Out-File -FilePath `$summaryFile -Append
-                    "Fecha: ${env.EXECUTION_DATE}" | Out-File -FilePath `$summaryFile -Append
-                    "Hora: ${env.EXECUTION_TIME}" | Out-File -FilePath `$summaryFile -Append
-                    "Ambiente seleccionado: ${params.AMBIENTE}" | Out-File -FilePath `$summaryFile -Append
-                    "=========================================" | Out-File -FilePath `$summaryFile -Append
-                    "" | Out-File -FilePath `$summaryFile -Append
+                    "=========================================" | Out-File -FilePath \$summaryFile
+                    "RESUMEN DE EJECUCION - ACHDATA" | Out-File -FilePath \$summaryFile -Append
+                    "=========================================" | Out-File -FilePath \$summaryFile -Append
+                    "Fecha: ${env.EXECUTION_DATE}" | Out-File -FilePath \$summaryFile -Append
+                    "Hora: ${env.EXECUTION_TIME}" | Out-File -FilePath \$summaryFile -Append
+                    "Ambiente: ${params.AMBIENTE}" | Out-File -FilePath \$summaryFile -Append
+                    "=========================================" | Out-File -FilePath \$summaryFile -Append
+                    "" | Out-File -FilePath \$summaryFile -Append
                     
-                    # Listar reportes generados
-                    `$htmlReports = Get-ChildItem "`$executionFolder" -Filter "*.html" -ErrorAction SilentlyContinue
-                    if (`$htmlReports) {
-                        "REPORTES GENERADOS:" | Out-File -FilePath `$summaryFile -Append
-                        "-------------------" | Out-File -FilePath `$summaryFile -Append
-                        foreach (`$report in `$htmlReports) {
-                            "  - `$(`$report.Name)" | Out-File -FilePath `$summaryFile -Append
+                    if (Test-Path "\$resultadosFile") {
+                        "RESULTADOS:" | Out-File -FilePath \$summaryFile -Append
+                        "-----------------------" | Out-File -FilePath \$summaryFile -Append
+                        "" | Out-File -FilePath \$summaryFile -Append
+                        
+                        \$lines = Get-Content "\$resultadosFile"
+                        \$ejecutados = 0
+                        \$noDisponibles = 0
+                        \$errores = 0
+                        \$totalRequests = 0
+                        \$totalPassedRequests = 0
+                        \$totalFailedRequests = 0
+                        
+                        foreach (\$line in \$lines) {
+                            \$parts = \$line.Split(',')
+                            if (\$parts.Count -eq 9) {
+                                \$amb = \$parts[0].Trim()
+                                \$carpeta = \$parts[1].Trim()
+                                \$estado = \$parts[2].Trim()
+                                \$reqTotal = [int]\$parts[3].Trim()
+                                \$reqPassed = [int]\$parts[4].Trim()
+                                \$reqFailed = [int]\$parts[5].Trim()
+                                
+                                if (\$estado -eq "EJECUTADO") {
+                                    \$ejecutados++
+                                    \$totalRequests += \$reqTotal
+                                    \$totalPassedRequests += \$reqPassed
+                                    \$totalFailedRequests += \$reqFailed
+                                    
+                                    if (\$reqFailed -eq 0) {
+                                        "[OK] \$amb - \$carpeta" | Out-File -FilePath \$summaryFile -Append
+                                    } else {
+                                        "[WARN] \$amb - \$carpeta" | Out-File -FilePath \$summaryFile -Append
+                                    }
+                                    "     Requests: \$reqTotal (OK:\$reqPassed / FAIL:\$reqFailed)" | Out-File -FilePath \$summaryFile -Append
+                                } elseif (\$estado -eq "NO_DISPONIBLE") {
+                                    \$noDisponibles++
+                                    "[N/A] \$amb - \$carpeta" | Out-File -FilePath \$summaryFile -Append
+                                } else {
+                                    \$errores++
+                                    "[ERROR] \$amb - \$carpeta" | Out-File -FilePath \$summaryFile -Append
+                                }
+                                "" | Out-File -FilePath \$summaryFile -Append
+                            }
                         }
-                        "" | Out-File -FilePath `$summaryFile -Append
+                        
+                        "=========================================" | Out-File -FilePath \$summaryFile -Append
+                        "RESUMEN:" | Out-File -FilePath \$summaryFile -Append
+                        "-----------------------" | Out-File -FilePath \$summaryFile -Append
+                        "Carpetas ejecutadas: \$ejecutados" | Out-File -FilePath \$summaryFile -Append
+                        "Carpetas no disponibles: \$noDisponibles" | Out-File -FilePath \$summaryFile -Append
+                        "Carpetas con error: \$errores" | Out-File -FilePath \$summaryFile -Append
+                        "" | Out-File -FilePath \$summaryFile -Append
+                        
+                        if (\$ejecutados -gt 0) {
+                            "TOTALES (ejecutadas):" | Out-File -FilePath \$summaryFile -Append
+                            "Requests totales: \$totalRequests" | Out-File -FilePath \$summaryFile -Append
+                            "Requests exitosos: \$totalPassedRequests" | Out-File -FilePath \$summaryFile -Append
+                            "Requests fallidos: \$totalFailedRequests" | Out-File -FilePath \$summaryFile -Append
+                            
+                            if (\$totalRequests -gt 0) {
+                                \$successRate = [math]::Round((\$totalPassedRequests / \$totalRequests) * 100, 2)
+                                "Tasa de exito: \$successRate%" | Out-File -FilePath \$summaryFile -Append
+                            }
+                        }
                     } else {
-                        "No se generaron reportes HTML" | Out-File -FilePath `$summaryFile -Append
-                        "" | Out-File -FilePath `$summaryFile -Append
+                        "No se encontraron resultados" | Out-File -FilePath \$summaryFile -Append
                     }
                     
-                    # Mostrar resultados si existen
-                    `$resultadosFile = "`$executionFolder\\resultados.csv"
-                    if (Test-Path `$resultadosFile) {
-                        "RESULTADOS:" | Out-File -FilePath `$summaryFile -Append
-                        "----------" | Out-File -FilePath `$summaryFile -Append
-                        Get-Content `$resultadosFile | Out-File -FilePath `$summaryFile -Append
-                        "" | Out-File -FilePath `$summaryFile -Append
-                    }
+                    \$htmlReports = Get-ChildItem "\$executionFolder" -Filter "*.html" -ErrorAction SilentlyContinue
+                    "" | Out-File -FilePath \$summaryFile -Append
+                    "=========================================" | Out-File -FilePath \$summaryFile -Append
+                    "Reportes HTML generados: \$(\$htmlReports.Count)" | Out-File -FilePath \$summaryFile -Append
                     
                     Write-Host ""
-                    Write-Host "=== RESUMEN FINAL ==="
-                    Get-Content `$summaryFile
+                    Write-Host "=== RESUMEN ==="
+                    Get-Content \$summaryFile
                 """
             }
         }
@@ -298,20 +258,25 @@ pipeline {
         stage('Enviar Reportes por Correo') {
             steps {
                 script {
-                    // Verificar si hay reportes
-                    def hasReports = powershell(returnStdout: true, script: """
-                        `$executionFolder = '${env.EXECUTION_FOLDER}'
-                        `$htmlFiles = Get-ChildItem "`$executionFolder" -Filter "*.html" -ErrorAction SilentlyContinue
-                        if (`$htmlFiles) {
-                            Write-Output "YES"
+                    def htmlFiles = powershell(returnStdout: true, script: """
+                        \$executionFolder = "${env.EXECUTION_FOLDER}".Replace('/', '\\')
+                        if (Test-Path "\$executionFolder") {
+                            \$files = Get-ChildItem "\$executionFolder" -Filter "*.html" -ErrorAction SilentlyContinue
+                            if (\$files) {
+                                Write-Output (\$files.Name -join ",")
+                            } else {
+                                Write-Output "NO_FILES"
+                            }
                         } else {
-                            Write-Output "NO"
+                            Write-Output "NO_FOLDER"
                         }
                     """).trim()
                     
+                    echo "Archivos HTML encontrados: ${htmlFiles}"
+                    
                     def summaryContent = ""
                     try {
-                        summaryContent = readFile("${env.EXECUTION_FOLDER}\\resumen_ejecucion.txt")
+                        summaryContent = readFile("${env.EXECUTION_FOLDER}/resumen_ejecucion.txt")
                     } catch (Exception e) {
                         summaryContent = "No se pudo leer el resumen: ${e.message}"
                     }
@@ -319,21 +284,19 @@ pipeline {
                     def emailBody = """
                     <html>
                     <body style="font-family: Arial, sans-serif;">
-                        <h2>Reporte de Ejecución Postman - ACHDATA</h2>
-                        <p><strong>Fecha:</strong> ${env.EXECUTION_DATE}</p>
-                        <p><strong>Hora:</strong> ${env.EXECUTION_TIME}</p>
+                        <h2>Reporte de Ejecucion Postman - ACHDATA</h2>
+                        <p><strong>Fecha:</strong> ${env.EXECUTION_DATE} a las ${env.EXECUTION_TIME}</p>
                         <p><strong>Ambiente:</strong> ${params.AMBIENTE}</p>
-                        <p><strong>Tipo de ejecución:</strong> Colección completa</p>
                         
                         <h3>Resumen:</h3>
                         <pre style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; font-size: 12px;">
 ${summaryContent}
                         </pre>
                         
-                        <p><strong>Reportes adjuntos:</strong> ${hasReports == 'YES' ? 'Sí' : 'No'}</p>
+                        <p><strong>Reportes adjuntos:</strong> ${htmlFiles != 'NO_FILES' && htmlFiles != 'NO_FOLDER' ? htmlFiles.split(',').size() : 0} archivos HTML</p>
                         
                         <hr>
-                        <p style="font-size: 11px; color: #666;"><em>Generado automáticamente por Jenkins</em></p>
+                        <p style="font-size: 11px; color: #666;"><em>Generado automaticamente por Jenkins</em></p>
                     </body>
                     </html>
                     """
@@ -346,7 +309,7 @@ ${summaryContent}
                             subject: "Reporte Postman ACHDATA - ${params.AMBIENTE} - ${env.EXECUTION_DATE}",
                             body: emailBody,
                             mimeType: 'text/html',
-                            attachmentsPattern: "${env.EXECUTION_FOLDER}\\**\\*.html",
+                            attachmentsPattern: "${env.EXECUTION_FOLDER}/**/*.html",
                             from: 'jenkins@cbit-online.com'
                         )
                         echo "[OK] Correo enviado"
@@ -365,7 +328,7 @@ ${summaryContent}
                 echo "Reportes en: ${env.EXECUTION_FOLDER}"
                 
                 try {
-                    archiveArtifacts artifacts: "${env.EXECUTION_FOLDER}\\**\\*", allowEmptyArchive: true
+                    archiveArtifacts artifacts: "${env.EXECUTION_FOLDER}/**/*", allowEmptyArchive: true
                     echo "[OK] Artefactos archivados"
                 } catch (Exception e) {
                     echo "[WARN] No se archivaron: ${e.message}"
@@ -373,10 +336,10 @@ ${summaryContent}
             }
         }
         success {
-            echo '[OK] Pipeline completado exitosamente'
+            echo '[OK] Pipeline completado'
         }
         failure {
-            echo '[ERROR] Pipeline falló'
+            echo '[ERROR] Pipeline fallo'
         }
     }
 }
