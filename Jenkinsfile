@@ -35,25 +35,106 @@ pipeline {
                     Write-Host ""
                     
                     # Verificar colección
-                    if (Test-Path "Collection/ACHDATA - YY.postman_collection.json") {
+                    $collectionPath = "Collection/ACHDATA - YY.postman_collection.json"
+                    if (Test-Path $collectionPath) {
                         Write-Host "[OK] Colección encontrada"
-                        $collPath = Resolve-Path "Collection/ACHDATA - YY.postman_collection.json"
+                        $collPath = Resolve-Path $collectionPath
                         Write-Host "Ruta: $collPath"
+                        Write-Host ""
+                        Write-Host "Tamaño del archivo: $((Get-Item $collectionPath).Length) bytes"
                     } else {
-                        Write-Host "[ERROR] Colección NO encontrada"
-                        Write-Host "Buscando archivos..."
-                        Get-ChildItem -Recurse -Filter "*.json" | Select-Object Name, Directory | Format-Table
+                        Write-Host "[ERROR] Colección NO encontrada en: $collectionPath"
+                        Write-Host ""
+                        Write-Host "Buscando archivos de colección..."
+                        Get-ChildItem -Recurse -Filter "*.json" | Where-Object { $_.Name -match "postman" } | Select-Object Name, FullName | Format-Table
                     }
                     
                     Write-Host ""
                     
                     # Verificar entorno
-                    if (Test-Path "Environment/ACHData QA.postman_environment.json") {
+                    $envPath = "Environment/ACHData QA.postman_environment.json"
+                    if (Test-Path $envPath) {
                         Write-Host "[OK] Entorno encontrado"
-                        $envPath = Resolve-Path "Environment/ACHData QA.postman_environment.json"
-                        Write-Host "Ruta: $envPath"
+                        $envResolved = Resolve-Path $envPath
+                        Write-Host "Ruta: $envResolved"
                     } else {
-                        Write-Host "[ERROR] Entorno NO encontrado"
+                        Write-Host "[ERROR] Entorno NO encontrado en: $envPath"
+                        Write-Host ""
+                        Write-Host "Buscando archivos de entorno..."
+                        Get-ChildItem -Recurse -Filter "*environment*.json" | Select-Object Name, FullName | Format-Table
+                    }
+                '''
+            }
+        }
+        
+        stage('Listar Contenido Coleccion') {
+            steps {
+                powershell '''
+                    Write-Host "=== ANALIZANDO ESTRUCTURA DE LA COLECCIÓN ==="
+                    
+                    $collectionPath = "Collection/ACHDATA - YY.postman_collection.json"
+                    
+                    if (Test-Path $collectionPath) {
+                        # Mostrar las primeras líneas del archivo para ver su estructura
+                        Write-Host "Primeras 10 líneas del archivo:"
+                        Write-Host "--------------------------------"
+                        Get-Content $collectionPath -First 10
+                        
+                        Write-Host ""
+                        Write-Host "Últimas 5 líneas del archivo:"
+                        Write-Host "--------------------------------"
+                        Get-Content $collectionPath -Last 5
+                        
+                        Write-Host ""
+                        Write-Host "=== INTENTANDO LEER COMO JSON ==="
+                        
+                        try {
+                            # Intentar leer el JSON
+                            $jsonContent = Get-Content $collectionPath -Raw | ConvertFrom-Json
+                            
+                            Write-Host "[OK] JSON parseado correctamente"
+                            Write-Host "Nombre de la colección: $($jsonContent.info.name)"
+                            Write-Host ""
+                            
+                            # Función recursiva para listar items
+                            function List-Items {
+                                param($items, $level = 0)
+                                
+                                $indent = "  " * $level
+                                
+                                foreach ($item in $items) {
+                                    if ($item.name) {
+                                        Write-Host "${indent}- $($item.name)"
+                                        
+                                        # Si es una carpeta (tiene subitems)
+                                        if ($item.item) {
+                                            List-Items -items $item.item -level ($level + 1)
+                                        }
+                                        
+                                        # Si tiene request
+                                        if ($item.request) {
+                                            Write-Host "${indent}  [REQUEST] $($item.request.method) $($item.request.url.raw)"
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            if ($jsonContent.item) {
+                                Write-Host "Items en la colección:"
+                                Write-Host "======================"
+                                List-Items -items $jsonContent.item
+                            } else {
+                                Write-Host "La colección no tiene items definidos"
+                            }
+                            
+                        } catch {
+                            Write-Host "[ERROR] No se pudo parsear el JSON: $_"
+                            Write-Host ""
+                            Write-Host "Posible problema de encoding o formato"
+                        }
+                        
+                    } else {
+                        Write-Host "ERROR: Archivo no encontrado"
                     }
                 '''
             }
@@ -86,200 +167,108 @@ pipeline {
             }
         }
         
-        stage('Listar Carpetas de Coleccion') {
+        stage('Probar Ejecucion Simple') {
             steps {
-                powershell '''
-                    Write-Host "=== EXTRAYENDO CARPETAS DE LA COLECCIÓN ==="
+                script {
+                    // Primero probar ejecutar una carpeta específica si sabemos su nombre
+                    def testFolders = [
+                        "Autenticación",
+                        "Detallada Natural Y Juridica",
+                        "AT - Autenticación",
+                        "SS - Autenticación",
+                        "CS - Autenticación",
+                        "CER - Autenticación",
+                        "CERCS - Autenticación"
+                    ]
                     
-                    $collectionPath = "Collection/ACHDATA - YY.postman_collection.json"
-                    
-                    if (Test-Path $collectionPath) {
-                        # Leer y analizar el JSON
-                        $jsonContent = Get-Content $collectionPath -Raw
-                        
-                        # Usar expresiones regulares para extraer nombres de carpetas
-                        # Buscar patrones de nombres en el JSON
-                        $pattern = '"name"\s*:\s*"([^"]+)"'
-                        $matches = [regex]::Matches($jsonContent, $pattern)
-                        
-                        Write-Host "Nombres encontrados en la colección:"
-                        Write-Host "--------------------------------------"
-                        
-                        $uniqueNames = @{}
-                        foreach ($match in $matches) {
-                            $name = $match.Groups[1].Value
-                            if (-not $uniqueNames.ContainsKey($name)) {
-                                $uniqueNames[$name] = $true
-                                Write-Host "- $name"
-                            }
+                    testFolders.each { folderName ->
+                        stage("Probar: ${folderName}") {
+                            def result = powershell(returnStdout: true, script: """
+                                \$folderName = "${folderName}"
+                                \$executionFolder = "${env.EXECUTION_FOLDER}"
+                                
+                                Write-Host "Probando ejecutar carpeta: '\$folderName'"
+                                Write-Host "----------------------------------------"
+                                
+                                # Intentar ejecutar
+                                \$output = newman run "Collection/ACHDATA - YY.postman_collection.json" `
+                                    -e "Environment/ACHData QA.postman_environment.json" `
+                                    --folder "\$folderName" `
+                                    --insecure `
+                                    --reporters cli `
+                                    --reporter-cli-no-summary 2>&1
+                                
+                                Write-Host "Salida:"
+                                Write-Host \$output
+                                
+                                # Verificar si encontró la carpeta
+                                if (\$output -match "Unable to find a folder") {
+                                    Write-Host "RESULTADO: Carpeta no encontrada"
+                                    Write-Output "NOT_FOUND"
+                                } elseif (\$output -match "iteration") {
+                                    Write-Host "RESULTADO: Ejecutado con éxito"
+                                    Write-Output "SUCCESS"
+                                } else {
+                                    Write-Host "RESULTADO: Otro resultado"
+                                    Write-Output "OTHER"
+                                }
+                            """).trim()
+                            
+                            echo "Resultado para '${folderName}': ${result}"
                         }
-                        
-                        Write-Host ""
-                        Write-Host "Total nombres únicos: $($uniqueNames.Count)"
-                        
-                        # Guardar en archivo para referencia
-                        $uniqueNames.Keys | Out-File "folder_names.txt" -Encoding UTF8
-                    } else {
-                        Write-Host "ERROR: No se encontró la colección"
                     }
-                '''
-            }
-        }
-        
-        stage('Ejecutar Prueba Simple') {
-            steps {
-                powershell '''
-                    Write-Host "=== EJECUTANDO PRUEBA SIMPLE ==="
-                    
-                    # Primero, ejecutar sin carpeta específica para ver qué hay
-                    newman run "Collection/ACHDATA - YY.postman_collection.json" `
-                        -e "Environment/ACHData QA.postman_environment.json" `
-                        --insecure `
-                        --reporters cli `
-                        --reporter-cli-no-summary
-                    
-                    Write-Host ""
-                    Write-Host "=== EJECUTANDO POR ITEM ==="
-                    
-                    # Obtener el primer item de la colección
-                    $jsonContent = Get-Content "Collection/ACHDATA - YY.postman_collection.json" -Raw | ConvertFrom-Json
-                    
-                    if ($jsonContent.item -and $jsonContent.item.Count -gt 0) {
-                        $firstItem = $jsonContent.item[0].name
-                        Write-Host "Primer item encontrado: $firstItem"
-                        
-                        Write-Host ""
-                        Write-Host "Ejecutando: $firstItem"
-                        newman run "Collection/ACHDATA - YY.postman_collection.json" `
-                            -e "Environment/ACHData QA.postman_environment.json" `
-                            --folder "$firstItem" `
-                            --insecure `
-                            --reporters cli `
-                            --reporter-cli-no-summary
-                    }
-                '''
+                }
             }
         }
         
         stage('Ejecutar Coleccion Completa') {
             steps {
-                script {
-                    // Primero, obtener la lista real de carpetas de la colección
-                    def folders = powershell(returnStdout: true, script: '''
-                        $collectionPath = "Collection/ACHDATA - YY.postman_collection.json"
-                        $folders = @()
-                        
-                        if (Test-Path $collectionPath) {
-                            $jsonContent = Get-Content $collectionPath -Raw | ConvertFrom-Json
-                            
-                            function Get-FolderNames {
-                                param($items)
-                                
-                                foreach ($item in $items) {
-                                    if ($item.name) {
-                                        $folders += $item.name
-                                    }
-                                    
-                                    if ($item.item) {
-                                        $folders += Get-FolderNames -items $item.item
-                                    }
-                                }
-                                
-                                return $folders
-                            }
-                            
-                            $folders = Get-FolderNames -items $jsonContent.item
-                        }
-                        
-                        # Filtrar solo carpetas (excluir requests individuales)
-                        # Asumiendo que las carpetas son las que empiezan con los códigos de ambiente
-                        $filteredFolders = $folders | Where-Object { 
-                            $_ -match '^(AT|SS|CS|CER|CERCS)\s*-'
-                        }
-                        
-                        Write-Output ($filteredFolders -join "|")
-                    ''').trim().split('\\|')
+                powershell """
+                    \$executionFolder = "${env.EXECUTION_FOLDER}"
+                    \$reportFile = "\$executionFolder\\report_completo.html"
+                    \$jsonReport = "\$executionFolder\\report_completo.json"
+                    \$resultadosFile = "\$executionFolder\\resultados.csv"
                     
-                    echo "Carpetas encontradas: ${folders}"
+                    Write-Host "=== EJECUTANDO COLECCIÓN COMPLETA ==="
+                    Write-Host "Esto ejecutará TODOS los requests de la colección"
+                    Write-Host ""
                     
-                    if (folders.size() == 0) {
-                        echo "[WARN] No se encontraron carpetas con el patrón esperado"
-                        echo "Intentando ejecutar toda la colección..."
-                        
-                        stage("Ejecutar Coleccion Completa") {
-                            powershell """
-                                \$executionFolder = "${env.EXECUTION_FOLDER}"
-                                \$reportFile = "\$executionFolder\\report_completo.html"
-                                \$jsonReport = "\$executionFolder\\report_completo.json"
-                                
-                                Write-Host "=== EJECUTANDO COLECCIÓN COMPLETA ==="
-                                
-                                newman run "Collection/ACHDATA - YY.postman_collection.json" `
-                                    -e "Environment/ACHData QA.postman_environment.json" `
-                                    --insecure `
-                                    --reporters cli,html,json `
-                                    --reporter-html-export "\$reportFile" `
-                                    --reporter-json-export "\$jsonReport"
-                                
-                                if (\$LASTEXITCODE -eq 0) {
-                                    Write-Host "[OK] Ejecución completada"
-                                } else {
-                                    Write-Host "[WARN] Ejecución con errores"
-                                }
-                            """
-                        }
-                    } else {
-                        // Filtrar por ambiente seleccionado
-                        def ambientes = params.AMBIENTE == 'ALL' ? 
-                            ['AT', 'SS', 'CS', 'CER', 'CERCS'] : 
-                            [params.AMBIENTE]
-                        
-                        folders.each { folder ->
-                            def ambiente = folder.split(' - ')[0].trim()
+                    # Ejecutar toda la colección
+                    newman run "Collection/ACHDATA - YY.postman_collection.json" `
+                        -e "Environment/ACHData QA.postman_environment.json" `
+                        --insecure `
+                        --reporters cli,html,json `
+                        --reporter-html-export "\$reportFile" `
+                        --reporter-json-export "\$jsonReport"
+                    
+                    \$exitCode = \$LASTEXITCODE
+                    
+                    if (Test-Path "\$jsonReport") {
+                        try {
+                            \$jsonContent = Get-Content "\$jsonReport" -Raw | ConvertFrom-Json
+                            \$totalRequests = \$jsonContent.run.stats.requests.total
+                            \$failedRequests = \$jsonContent.run.stats.requests.failed
+                            \$passedRequests = \$totalRequests - \$failedRequests
                             
-                            if (ambientes.contains(ambiente) || params.AMBIENTE == 'ALL') {
-                                stage("${folder}") {
-                                    powershell """
-                                        \$folderName = "${folder}"
-                                        \$ambiente = "${ambiente}"
-                                        \$executionFolder = "${env.EXECUTION_FOLDER}"
-                                        \$safeFileName = "\${folder}".Replace(' ', '_').Replace('/', '_').Replace('\\', '_')
-                                        \$reportFile = "\$executionFolder\\report_\${safeFileName}.html"
-                                        \$jsonReport = "\$executionFolder\\report_\${safeFileName}.json"
-                                        \$resultadosFile = "\$executionFolder\\resultados.csv"
-                                        
-                                        Write-Host "========================================="
-                                        Write-Host "Ejecutando: \${folderName}"
-                                        Write-Host "========================================="
-                                        
-                                        newman run "Collection/ACHDATA - YY.postman_collection.json" `
-                                            -e "Environment/ACHData QA.postman_environment.json" `
-                                            --folder "\${folderName}" `
-                                            --insecure `
-                                            --reporters cli,html,json `
-                                            --reporter-html-export "\$reportFile" `
-                                            --reporter-json-export "\$jsonReport"
-                                        
-                                        if (Test-Path "\${jsonReport}") {
-                                            try {
-                                                \$jsonContent = Get-Content "\${jsonReport}" -Raw | ConvertFrom-Json
-                                                \$totalRequests = \$jsonContent.run.stats.requests.total
-                                                \$failedRequests = \$jsonContent.run.stats.requests.failed
-                                                \$passedRequests = \$totalRequests - \$failedRequests
-                                                
-                                                "\${folderName},EJECUTADO,\${totalRequests},\${passedRequests},\${failedRequests}" | Out-File -FilePath "\${resultadosFile}" -Append -Encoding UTF8
-                                                Write-Host "[OK] Resultados guardados"
-                                            } catch {
-                                                Write-Host "Error procesando JSON"
-                                                "\${folderName},ERROR,0,0,0" | Out-File -FilePath "\${resultadosFile}" -Append -Encoding UTF8
-                                            }
-                                        }
-                                    """
-                                }
-                            }
+                            Write-Host ""
+                            Write-Host "=== RESULTADOS ==="
+                            Write-Host "Total requests: \$totalRequests"
+                            Write-Host "Passed: \$passedRequests"
+                            Write-Host "Failed: \$failedRequests"
+                            
+                            "COLECCION_COMPLETA,EJECUTADO,\$totalRequests,\$passedRequests,\$failedRequests" | Out-File -FilePath "\$resultadosFile" -Encoding UTF8
+                            
+                        } catch {
+                            Write-Host "Error procesando JSON: \$_"
                         }
                     }
-                }
+                    
+                    if (\$exitCode -eq 0) {
+                        Write-Host "[OK] Ejecución completada exitosamente"
+                    } else {
+                        Write-Host "[WARN] Ejecución completada con errores (código: \$exitCode)"
+                    }
+                """
             }
         }
         
@@ -294,46 +283,98 @@ pipeline {
                     "=========================================" | Out-File -FilePath \$summaryFile -Append
                     "Fecha: ${env.EXECUTION_DATE}" | Out-File -FilePath \$summaryFile -Append
                     "Hora: ${env.EXECUTION_TIME}" | Out-File -FilePath \$summaryFile -Append
-                    "Ambiente: ${params.AMBIENTE}" | Out-File -FilePath \$summaryFile -Append
+                    "Ambiente seleccionado: ${params.AMBIENTE}" | Out-File -FilePath \$summaryFile -Append
                     "=========================================" | Out-File -FilePath \$summaryFile -Append
+                    "" | Out-File -FilePath \$summaryFile -Append
                     
                     # Listar reportes generados
                     \$htmlReports = Get-ChildItem "\$executionFolder" -Filter "*.html" -ErrorAction SilentlyContinue
                     if (\$htmlReports) {
-                        "Reportes HTML generados:" | Out-File -FilePath \$summaryFile -Append
+                        "REPORTES GENERADOS:" | Out-File -FilePath \$summaryFile -Append
+                        "-------------------" | Out-File -FilePath \$summaryFile -Append
                         foreach (\$report in \$htmlReports) {
                             "  - \$(\$report.Name)" | Out-File -FilePath \$summaryFile -Append
                         }
+                        "" | Out-File -FilePath \$summaryFile -Append
                     } else {
                         "No se generaron reportes HTML" | Out-File -FilePath \$summaryFile -Append
+                        "" | Out-File -FilePath \$summaryFile -Append
                     }
                     
+                    # Mostrar resultados si existen
+                    \$resultadosFile = "\$executionFolder\\resultados.csv"
+                    if (Test-Path \$resultadosFile) {
+                        "RESULTADOS:" | Out-File -FilePath \$summaryFile -Append
+                        "----------" | Out-File -FilePath \$summaryFile -Append
+                        Get-Content \$resultadosFile | Out-File -FilePath \$summaryFile -Append
+                        "" | Out-File -FilePath \$summaryFile -Append
+                    }
+                    
+                    Write-Host ""
+                    Write-Host "=== RESUMEN FINAL ==="
                     Get-Content \$summaryFile
                 """
             }
         }
         
-        stage('Enviar Reportes') {
+        stage('Enviar Reportes por Correo') {
             steps {
                 script {
-                    emailext(
-                        to: 'yeinerballesta@cbit-online.com',
-                        subject: "Reporte Postman ACHDATA - ${params.AMBIENTE} - ${env.EXECUTION_DATE}",
-                        body: """
-                        <html>
-                        <body>
-                            <h2>Reporte de Ejecución Postman - ACHDATA</h2>
-                            <p><strong>Fecha:</strong> ${env.EXECUTION_DATE}</p>
-                            <p><strong>Hora:</strong> ${env.EXECUTION_TIME}</p>
-                            <p><strong>Ambiente:</strong> ${params.AMBIENTE}</p>
-                            <p><strong>Carpeta de ejecución:</strong> ${env.EXECUTION_FOLDER}</p>
-                        </body>
-                        </html>
-                        """,
-                        mimeType: 'text/html',
-                        attachmentsPattern: "${env.EXECUTION_FOLDER}/**/*",
-                        from: 'jenkins@cbit-online.com'
-                    )
+                    // Verificar si hay reportes
+                    def hasReports = powershell(returnStdout: true, script: """
+                        \$executionFolder = "${env.EXECUTION_FOLDER}"
+                        \$htmlFiles = Get-ChildItem "\$executionFolder" -Filter "*.html" -ErrorAction SilentlyContinue
+                        if (\$htmlFiles) {
+                            Write-Output "YES"
+                        } else {
+                            Write-Output "NO"
+                        }
+                    """).trim()
+                    
+                    def summaryContent = ""
+                    try {
+                        summaryContent = readFile("${env.EXECUTION_FOLDER}\\resumen_ejecucion.txt")
+                    } catch (Exception e) {
+                        summaryContent = "No se pudo leer el resumen"
+                    }
+                    
+                    def emailBody = """
+                    <html>
+                    <body style="font-family: Arial, sans-serif;">
+                        <h2>Reporte de Ejecución Postman - ACHDATA</h2>
+                        <p><strong>Fecha:</strong> ${env.EXECUTION_DATE}</p>
+                        <p><strong>Hora:</strong> ${env.EXECUTION_TIME}</p>
+                        <p><strong>Ambiente:</strong> ${params.AMBIENTE}</p>
+                        <p><strong>Tipo de ejecución:</strong> Colección completa</p>
+                        
+                        <h3>Resumen:</h3>
+                        <pre style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; font-size: 12px;">
+${summaryContent}
+                        </pre>
+                        
+                        <p><strong>Reportes adjuntos:</strong> ${hasReports == 'YES' ? 'Sí' : 'No'}</p>
+                        
+                        <hr>
+                        <p style="font-size: 11px; color: #666;"><em>Generado automáticamente por Jenkins</em></p>
+                    </body>
+                    </html>
+                    """
+                    
+                    echo "Enviando correo a: yeinerballesta@cbit-online.com"
+                    
+                    try {
+                        emailext(
+                            to: 'yeinerballesta@cbit-online.com',
+                            subject: "Reporte Postman ACHDATA - ${params.AMBIENTE} - ${env.EXECUTION_DATE}",
+                            body: emailBody,
+                            mimeType: 'text/html',
+                            attachmentsPattern: "${env.EXECUTION_FOLDER}\\**\\*.html",
+                            from: 'jenkins@cbit-online.com'
+                        )
+                        echo "[OK] Correo enviado"
+                    } catch (Exception e) {
+                        echo "[WARN] No se pudo enviar correo: ${e.message}"
+                    }
                 }
             }
         }
@@ -341,7 +382,23 @@ pipeline {
     
     post {
         always {
-            archiveArtifacts artifacts: "${env.EXECUTION_FOLDER}/**/*", allowEmptyArchive: true
+            script {
+                echo "Proceso completado"
+                echo "Reportes en: ${env.EXECUTION_FOLDER}"
+                
+                try {
+                    archiveArtifacts artifacts: "${env.EXECUTION_FOLDER}\\**\\*", allowEmptyArchive: true
+                    echo "[OK] Artefactos archivados"
+                } catch (Exception e) {
+                    echo "[WARN] No se archivaron: ${e.message}"
+                }
+            }
+        }
+        success {
+            echo '[OK] Pipeline completado exitosamente'
+        }
+        failure {
+            echo '[ERROR] Pipeline falló'
         }
     }
 }
