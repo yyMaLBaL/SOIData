@@ -36,8 +36,8 @@ pipeline {
                         Write-Output "${date}_${time}"
                     ''').trim()
                     
-                    // Cambio: Ahora usa D:\Executions
-                    def executionFolder = "D:/Executions/ACHDATA/Fecha_${dateTimeOutput.replace('_', '_Hora_')}"
+                    // Usar el workspace de Jenkins como base
+                    def executionFolder = "${env.WORKSPACE}/Executions/ACHDATA/Fecha_${dateTimeOutput.replace('_', '_Hora_')}"
                     
                     powershell """
                         Write-Host "Creando carpeta de ejecucion: ${executionFolder}"
@@ -58,18 +58,14 @@ pipeline {
         stage('Ejecutar Coleccion Postman') {
             steps {
                 script {
-                    // Definir ambientes a ejecutar
                     def ambientes = params.AMBIENTE == 'ALL' ? 
                         ['AT', 'SS', 'CS', 'CER', 'CERCS'] : 
                         [params.AMBIENTE]
                     
-                    // Lista de carpetas base (sin prefijo de ambiente)
-                    // IMPORTANTE: Estos nombres deben coincidir EXACTAMENTE con los de tu colección
-                    // incluyendo tildes (ó, í, á, etc.)
+                    // Lista con nombres EXACTOS de tu colección
                     def carpetasBase = [
                         'Autenticación',
                         'Detallada Natural Y Jurídica'
-                        // Agrega aquí el resto de carpetas
                     ]
                     
                     ambientes.each { ambiente ->
@@ -78,11 +74,20 @@ pipeline {
                             
                             stage("${ambiente} - ${carpetaBase}") {
                                 def exitCode = powershell(returnStatus: true, script: """
+                                    \$PSDefaultParameterValues['*:Encoding'] = 'utf8'
+                                    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+                                    
                                     \$folderName = "${folderName}"
                                     \$ambiente = "${ambiente}"
                                     \$carpetaBase = "${carpetaBase}"
                                     \$executionFolder = "${env.EXECUTION_FOLDER}".Replace('/', '\\')
-                                    \$safeFileName = "\${ambiente}_\${carpetaBase}".Replace(' ', '_').Replace('á', 'a').Replace('é', 'e').Replace('í', 'i').Replace('ó', 'o').Replace('ú', 'u')
+                                    
+                                    # Asegurar que la carpeta existe
+                                    if (-not (Test-Path "\$executionFolder")) {
+                                        New-Item -ItemType Directory -Force -Path "\$executionFolder" | Out-Null
+                                    }
+                                    
+                                    \$safeFileName = "\${ambiente}_\${carpetaBase}" -replace ' ', '_' -replace 'á', 'a' -replace 'é', 'e' -replace 'í', 'i' -replace 'ó', 'o' -replace 'ú', 'u'
                                     \$reportFile = "\$executionFolder\\report_\${safeFileName}.html"
                                     \$jsonReport = "\$executionFolder\\report_\${safeFileName}.json"
                                     \$resultadosFile = "\$executionFolder\\resultados.csv"
@@ -163,26 +168,29 @@ pipeline {
         stage('Generar Resumen') {
             steps {
                 powershell """
+                    \$PSDefaultParameterValues['*:Encoding'] = 'utf8'
+                    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+                    
                     \$executionFolder = "${env.EXECUTION_FOLDER}".Replace('/', '\\')
                     \$summaryFile = "\$executionFolder\\resumen_ejecucion.txt"
                     \$resultadosFile = "\$executionFolder\\resultados.csv"
                     
-                    "=========================================" | Out-File -FilePath \$summaryFile
-                    "RESUMEN DE EJECUCION - ACHDATA" | Out-File -FilePath \$summaryFile -Append
-                    "=========================================" | Out-File -FilePath \$summaryFile -Append
-                    "Fecha: ${env.EXECUTION_DATE}" | Out-File -FilePath \$summaryFile -Append
-                    "Hora: ${env.EXECUTION_TIME}" | Out-File -FilePath \$summaryFile -Append
-                    "Ambiente: ${params.AMBIENTE}" | Out-File -FilePath \$summaryFile -Append
-                    "Ruta: \$executionFolder" | Out-File -FilePath \$summaryFile -Append
-                    "=========================================" | Out-File -FilePath \$summaryFile -Append
-                    "" | Out-File -FilePath \$summaryFile -Append
+                    "=========================================" | Out-File -FilePath \$summaryFile -Encoding UTF8
+                    "RESUMEN DE EJECUCION - ACHDATA" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                    "=========================================" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                    "Fecha: ${env.EXECUTION_DATE}" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                    "Hora: ${env.EXECUTION_TIME}" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                    "Ambiente: ${params.AMBIENTE}" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                    "Ruta: \$executionFolder" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                    "=========================================" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                    "" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                     
                     if (Test-Path "\$resultadosFile") {
-                        "RESULTADOS:" | Out-File -FilePath \$summaryFile -Append
-                        "-----------------------" | Out-File -FilePath \$summaryFile -Append
-                        "" | Out-File -FilePath \$summaryFile -Append
+                        "RESULTADOS:" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                        "-----------------------" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                        "" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                         
-                        \$lines = Get-Content "\$resultadosFile"
+                        \$lines = Get-Content "\$resultadosFile" -Encoding UTF8
                         \$ejecutados = 0
                         \$noDisponibles = 0
                         \$errores = 0
@@ -207,53 +215,53 @@ pipeline {
                                     \$totalFailedRequests += \$reqFailed
                                     
                                     if (\$reqFailed -eq 0) {
-                                        "[OK] \$amb - \$carpeta" | Out-File -FilePath \$summaryFile -Append
+                                        "[OK] \$amb - \$carpeta" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                                     } else {
-                                        "[WARN] \$amb - \$carpeta" | Out-File -FilePath \$summaryFile -Append
+                                        "[WARN] \$amb - \$carpeta" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                                     }
-                                    "     Requests: \$reqTotal (OK:\$reqPassed / FAIL:\$reqFailed)" | Out-File -FilePath \$summaryFile -Append
+                                    "     Requests: \$reqTotal (OK:\$reqPassed / FAIL:\$reqFailed)" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                                 } elseif (\$estado -eq "NO_DISPONIBLE") {
                                     \$noDisponibles++
-                                    "[N/A] \$amb - \$carpeta" | Out-File -FilePath \$summaryFile -Append
+                                    "[N/A] \$amb - \$carpeta" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                                 } else {
                                     \$errores++
-                                    "[ERROR] \$amb - \$carpeta" | Out-File -FilePath \$summaryFile -Append
+                                    "[ERROR] \$amb - \$carpeta" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                                 }
-                                "" | Out-File -FilePath \$summaryFile -Append
+                                "" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                             }
                         }
                         
-                        "=========================================" | Out-File -FilePath \$summaryFile -Append
-                        "RESUMEN:" | Out-File -FilePath \$summaryFile -Append
-                        "-----------------------" | Out-File -FilePath \$summaryFile -Append
-                        "Carpetas ejecutadas: \$ejecutados" | Out-File -FilePath \$summaryFile -Append
-                        "Carpetas no disponibles: \$noDisponibles" | Out-File -FilePath \$summaryFile -Append
-                        "Carpetas con error: \$errores" | Out-File -FilePath \$summaryFile -Append
-                        "" | Out-File -FilePath \$summaryFile -Append
+                        "=========================================" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                        "RESUMEN:" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                        "-----------------------" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                        "Carpetas ejecutadas: \$ejecutados" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                        "Carpetas no disponibles: \$noDisponibles" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                        "Carpetas con error: \$errores" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                        "" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                         
                         if (\$ejecutados -gt 0) {
-                            "TOTALES (ejecutadas):" | Out-File -FilePath \$summaryFile -Append
-                            "Requests totales: \$totalRequests" | Out-File -FilePath \$summaryFile -Append
-                            "Requests exitosos: \$totalPassedRequests" | Out-File -FilePath \$summaryFile -Append
-                            "Requests fallidos: \$totalFailedRequests" | Out-File -FilePath \$summaryFile -Append
+                            "TOTALES (ejecutadas):" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                            "Requests totales: \$totalRequests" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                            "Requests exitosos: \$totalPassedRequests" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                            "Requests fallidos: \$totalFailedRequests" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                             
                             if (\$totalRequests -gt 0) {
                                 \$successRate = [math]::Round((\$totalPassedRequests / \$totalRequests) * 100, 2)
-                                "Tasa de exito: \$successRate%" | Out-File -FilePath \$summaryFile -Append
+                                "Tasa de exito: \$successRate%" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                             }
                         }
                     } else {
-                        "No se encontraron resultados" | Out-File -FilePath \$summaryFile -Append
+                        "No se encontraron resultados" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                     }
                     
                     \$htmlReports = Get-ChildItem "\$executionFolder" -Filter "*.html" -ErrorAction SilentlyContinue
-                    "" | Out-File -FilePath \$summaryFile -Append
-                    "=========================================" | Out-File -FilePath \$summaryFile -Append
-                    "Reportes HTML generados: \$(\$htmlReports.Count)" | Out-File -FilePath \$summaryFile -Append
+                    "" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                    "=========================================" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
+                    "Reportes HTML generados: \$(\$htmlReports.Count)" | Out-File -FilePath \$summaryFile -Append -Encoding UTF8
                     
                     Write-Host ""
                     Write-Host "=== RESUMEN ==="
-                    Get-Content \$summaryFile
+                    Get-Content \$summaryFile -Encoding UTF8
                 """
             }
         }
@@ -290,7 +298,6 @@ pipeline {
                         <h2>Reporte de Ejecucion Postman - ACHDATA</h2>
                         <p><strong>Fecha:</strong> ${env.EXECUTION_DATE} a las ${env.EXECUTION_TIME}</p>
                         <p><strong>Ambiente:</strong> ${params.AMBIENTE}</p>
-                        <p><strong>Ruta:</strong> ${env.EXECUTION_FOLDER}</p>
                         
                         <h3>Resumen:</h3>
                         <pre style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; font-size: 12px;">
