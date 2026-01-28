@@ -98,8 +98,7 @@ pipeline {
                             stage("${folderName}") {
                                 def exitCode = powershell(returnStatus: true, script: """
                                     \$OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-                                    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-                                    chcp 65001 | Out-Null
+                                    chcp 65001 > \$null
                                     
                                     \$folderName = "${folderName}"
                                     \$ambiente = "${ambiente}"
@@ -123,22 +122,20 @@ pipeline {
                                     \$folderExists = \$false
                                     
                                     try {
-                                        \$result = newman run "Collection/ACHDATA - YY.postman_collection.json" `
-                                            -e "Environment/ACHData QA.postman_environment.json" `
-                                            --folder "\${folderName}" `
-                                            --insecure `
-                                            --reporters cli,html,json `
-                                            --reporter-html-export "\${reportFile}" `
-                                            --reporter-json-export "\${jsonReport}" 2>&1
+                                        newman run "Collection/ACHDATA - YY.postman_collection.json" ``
+                                            -e "Environment/ACHData QA.postman_environment.json" ``
+                                            --folder "\${folderName}" ``
+                                            --insecure ``
+                                            --reporters cli,html,json ``
+                                            --reporter-html-export "\${reportFile}" ``
+                                            --reporter-json-export "\${jsonReport}"
                                         
                                         \$newmanExitCode = \$LASTEXITCODE
-                                        Write-Host \$result
                                         
-                                        if (\$result -match "Unable to find a folder") {
-                                            Write-Host "[INFO] Carpeta no encontrada"
-                                            \$folderExists = \$false
-                                        } else {
+                                        if (\$newmanExitCode -eq 0 -and (Test-Path "\${jsonReport}")) {
                                             \$folderExists = \$true
+                                        } else {
+                                            \$folderExists = \$false
                                         }
                                         
                                     } catch {
