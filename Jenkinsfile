@@ -57,7 +57,6 @@ pipeline {
         stage('Ejecutar Coleccion Postman') {
             steps {
                 script {
-                    // Obtener las carpetas disponibles del JSON
                     def carpetasDisponibles = powershell(returnStdout: true, script: '''
                         $collection = Get-Content "Collection/ACHDATA - YY.postman_collection.json" -Raw -Encoding UTF8 | ConvertFrom-Json
                         
@@ -82,21 +81,18 @@ pipeline {
                     echo "Carpetas encontradas: ${carpetasDisponibles.size()}"
                     carpetasDisponibles.each { echo "  - ${it}" }
                     
-                    // Definir ambientes a ejecutar
                     def ambientes = params.AMBIENTE == 'ALL' ? 
                         ['AT', 'SS', 'CS', 'CER', 'CERCS'] : 
                         [params.AMBIENTE]
                     
-                    // Filtrar carpetas por ambiente
                     ambientes.each { ambiente ->
                         def carpetasParaEsteAmbiente = carpetasDisponibles.findAll { it.startsWith("${ambiente} - ") }
                         
                         carpetasParaEsteAmbiente.each { folderName ->
-                            // Extraer el nombre sin el prefijo del ambiente
                             def carpetaBase = folderName.replaceFirst("${ambiente} - ", "")
                             
                             stage("${folderName}") {
-                                def exitCode = powershell(returnStatus: true, script: """
+                                powershell(returnStatus: true, script: """
                                     \$OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
                                     chcp 65001 > \$null
                                     
@@ -118,29 +114,17 @@ pipeline {
                                     Write-Host "Ejecutando: \${folderName}"
                                     Write-Host "========================================="
                                     
-                                    \$newmanExitCode = 0
                                     \$folderExists = \$false
                                     
                                     try {
-                                        newman run "Collection/ACHDATA - YY.postman_collection.json" `
-                                            -e "Environment/ACHData QA.postman_environment.json" `
-                                            --folder "\${folderName}" `
-                                            --insecure `
-                                            --reporters cli,html,json `
-                                            --reporter-html-export "\${reportFile}" `
-                                            --reporter-json-export "\${jsonReport}"
+                                        \$cmd = 'newman run "Collection/ACHDATA - YY.postman_collection.json" -e "Environment/ACHData QA.postman_environment.json" --folder "' + \$folderName + '" --insecure --reporters cli,html,json --reporter-html-export "' + \$reportFile + '" --reporter-json-export "' + \$jsonReport + '"'
+                                        Invoke-Expression \$cmd
                                         
-                                        \$newmanExitCode = \$LASTEXITCODE
-                                        
-                                        if (\$newmanExitCode -eq 0 -and (Test-Path "\${jsonReport}")) {
+                                        if (\$LASTEXITCODE -eq 0 -and (Test-Path "\${jsonReport}")) {
                                             \$folderExists = \$true
-                                        } else {
-                                            \$folderExists = \$false
                                         }
-                                        
                                     } catch {
                                         Write-Host "Error: \$_"
-                                        \$folderExists = \$false
                                     }
                                     
                                     if (\$folderExists -and (Test-Path "\${jsonReport}")) {
@@ -313,7 +297,7 @@ ${summaryContent}
                             body: emailBody,
                             mimeType: 'text/html',
                             attachmentsPattern: "${env.EXECUTION_FOLDER}/**/*.html",
-                            from: 'jenkins@cbit-online.com'
+                            from: 'robot.stefanini@gmail.com'
                         )
                         echo "[OK] Correo enviado"
                     } catch (Exception e) {
